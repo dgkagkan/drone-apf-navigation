@@ -1,21 +1,16 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>commander_cpp</name>
+  <name>drone_description</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>VTOL drone description: URDF (RViz/TF), RViz configs, and the PX4 gz lidar model.</description>
   <maintainer email="jim.gaganakis@gmail.com">dimitris-gkagkanakis</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>rclcpp</depend>
-  <depend>px4_msgs</depend>
-  <depend>geometry_msgs</depend>
-  <depend>std_msgs</depend>
-  <depend>sensor_msgs</depend>
-  <depend>tf2</depend>
-  <depend>tf2_ros</depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

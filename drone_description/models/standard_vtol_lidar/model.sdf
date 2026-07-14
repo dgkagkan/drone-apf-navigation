@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  standard_vtol_lidar
+  ===================
+  PX4 standard_vtol airframe + a 360-degree 2D lidar for APF obstacle avoidance.
+  Mirrors PX4's x500_lidar_2d pattern (merge-include the base airframe, then
+  attach a sensor link). The gpu_lidar publishes on the fixed gz topic "scan"
+  so ros_gz_bridge maps it 1:1 to the ROS /scan (sensor_msgs/LaserScan).
+
+  Install: copy this folder into PX4's gz model path, e.g.
+    ~/drone_project/PX4-Autopilot/Tools/simulation/gz/models/standard_vtol_lidar
+  (or add this dir to GZ_SIM_RESOURCE_PATH).
+-->
+<sdf version="1.9">
+  <model name="standard_vtol_lidar">
+    <include merge="true">
+      <uri>standard_vtol</uri>
+    </include>
+
+    <!-- 3D lidar (the only lidar now). 360-deg horizontal x 16-layer vertical
+         gpu_lidar, mounted on top. Sensor-only link (no visual/collision,
+         negligible mass) so the model's dynamics are effectively unchanged.
+         Publishes a point cloud on gz topic "scan_3d/points"
+         (gz.msgs.PointCloudPacked) plus a "scan_3d" LaserScan. -->
+    <link name="lidar_3d_link">
+      <pose relative_to="base_link">0 0 0.26 0 0 0</pose>
+      <inertial>
+        <mass>0.0001</mass>
+        <inertia>
+          <ixx>1e-6</ixx><iyy>1e-6</iyy><izz>1e-6</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <sensor name="lidar_3d" type="gpu_lidar">
+        <topic>scan_3d</topic>
+        <gz_frame_id>lidar_3d_link</gz_frame_id>
+        <update_rate>10</update_rate>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>360</samples>
+              <resolution>1</resolution>
+              <min_angle>-3.14159</min_angle>
+              <max_angle>3.14159</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>16</samples>
+              <resolution>1</resolution>
+              <min_angle>-0.261799</min_angle>
+              <max_angle>0.261799</max_angle>
+            </vertical>
+          </scan>
+          <!-- min=1.2: the standard_vtol wingspan is 2.144 m (base_link
+               collision box), so the wingtip sits ~1.10 m from this lidar
+               (0.26 m above base_link). Below 1.2 m the lidar would see its
+               own wings. This creates a 1.2 m dead zone around the drone. -->
+          <range>
+            <min>1.2</min>
+            <max>30.0</max>
+            <resolution>0.01</resolution>
+          </range>
+        </lidar>
+      </sensor>
+    </link>
+
+    <joint name="lidar_3d_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>lidar_3d_link</child>
+    </joint>
+
+    <!-- Downward 1D lidar (rangefinder) — measures height above ground.
+         Single ray pointing straight down; the LINK is pitched +90 deg so its
+         +X axis (the ray) points DOWN and the published LaserScan frame aligns
+         with the ray (RViz draws the point at the ground). Sensor-only,
+         negligible mass -> physics unchanged. gz topic "lidar_down";
+         ranges[0] = distance to floor. -->
+    <link name="lidar_down_link">
+      <pose relative_to="base_link">0 0 -0.1 0 1.5708 0</pose>
+      <inertial>
+        <mass>0.0001</mass>
+        <inertia>
+          <ixx>1e-6</ixx><iyy>1e-6</iyy><izz>1e-6</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <sensor name="lidar_down" type="gpu_lidar">
+        <topic>lidar_down</topic>
+        <gz_frame_id>lidar_down_link</gz_frame_id>
+        <update_rate>20</update_rate>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>1</samples>
+              <resolution>1</resolution>
+              <min_angle>0</min_angle>
+              <max_angle>0</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>1</samples>
+              <min_angle>0</min_angle>
+              <max_angle>0</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>0.05</min>
+            <max>50.0</max>
+            <resolution>0.01</resolution>
+          </range>
+        </lidar>
+      </sensor>
+    </link>
+
+    <joint name="lidar_down_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>lidar_down_link</child>
+    </joint>
+
+    <!-- ===== 3-axis ROS-controlled PTZ gimbal + camera =====
+         Sensor-only links (small but non-negligible mass/inertia — see note
+         below — no visual/collision). Three revolute joints driven by
+         JointPositionController plugins, each listening on a ROS-bridged
+         topic (target angle in rad, gz.msgs.Double). Camera on the innermost
+         (pitch) link, looks along +X at rest.
+
+         TUNING NOTE: mass/inertia and PID gains/cmd limits are copied from
+         PX4's own tuned gimbal model (Tools/simulation/gz/models/gimbal/
+         model.sdf, mass=0.1 iner=0.001 p_gain=0.3-0.8 cmd_max=0.3). An
+         earlier version used mass=0.0001/inertia=1e-6 with cmd_max=10, which
+         is why it jittered: with near-zero inertia, that torque limit gives
+         angular acceleration in the millions of rad/s^2, so the PID
+         overshoots every physics step and oscillates. -->
+    <link name="gimbal_pan_link">
+      <pose relative_to="base_link">0 0 -0.18 0 0 0</pose>
+      <inertial><mass>0.05</mass>
+        <inertia><ixx>1e-3</ixx><iyy>1e-3</iyy><izz>1e-3</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+    </link>
+    <joint name="gimbal_pan_joint" type="revolute">
+      <parent>base_link</parent><child>gimbal_pan_link</child>
+      <axis><xyz>0 0 1</xyz>
+        <limit><lower>-3.14159</lower><upper>3.14159</upper><effort>10</effort><velocity>3</velocity></limit>
+        <dynamics><damping>0.1</damping></dynamics>
+      </axis>
+      <physics><ode><implicit_spring_damper>1</implicit_spring_damper>
+        <limit><cfm>0.1</cfm><erp>0.2</erp></limit>
+      </ode></physics>
+    </joint>
+
+    <link name="gimbal_roll_link">
+      <pose relative_to="gimbal_pan_link">0 0 0 0 0 0</pose>
+      <inertial><mass>0.05</mass>
+        <inertia><ixx>1e-3</ixx><iyy>1e-3</iyy><izz>1e-3</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+    </link>
+    <joint name="gimbal_roll_joint" type="revolute">
+      <parent>gimbal_pan_link</parent><child>gimbal_roll_link</child>
+      <axis><xyz>1 0 0</xyz>
+        <limit><lower>-0.785</lower><upper>0.785</upper><effort>10</effort><velocity>3</velocity></limit>
+        <dynamics><damping>0.1</damping></dynamics>
+      </axis>
+      <physics><ode><implicit_spring_damper>1</implicit_spring_damper>
+        <limit><cfm>0.1</cfm><erp>0.2</erp></limit>
+      </ode></physics>
+    </joint>
+
+    <link name="gimbal_pitch_link">
+      <pose relative_to="gimbal_roll_link">0 0 0 0 0 0</pose>
+      <inertial><mass>0.05</mass>
+        <inertia><ixx>1e-3</ixx><iyy>1e-3</iyy><izz>1e-3</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <sensor name="gimbal_camera" type="camera">
+        <pose>0 0 0 0 0 0</pose>
+        <topic>gimbal_camera</topic>
+        <gz_frame_id>gimbal_pitch_link</gz_frame_id>
+        <update_rate>30</update_rate>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+        <camera>
+          <!-- ZOOM (static): smaller horizontal_fov = more zoom. 1.047 rad = 60 deg. -->
+          <horizontal_fov>1.047</horizontal_fov>
+          <image><width>1280</width><height>720</height><format>R8G8B8</format></image>
+          <clip><near>0.05</near><far>500</far></clip>
+        </camera>
+      </sensor>
+    </link>
+    <joint name="gimbal_pitch_joint" type="revolute">
+      <parent>gimbal_roll_link</parent><child>gimbal_pitch_link</child>
+      <axis><xyz>0 1 0</xyz>
+        <limit><lower>-1.5708</lower><upper>1.5708</upper><effort>10</effort><velocity>3</velocity></limit>
+        <dynamics><damping>0.1</damping></dynamics>
+      </axis>
+      <physics><ode><implicit_spring_damper>1</implicit_spring_damper>
+        <limit><cfm>0.1</cfm><erp>0.2</erp></limit>
+      </ode></physics>
+    </joint>
+
+    <!-- position controllers: publish gz.msgs.Double (target rad) to these
+         topics. Gains/limits match PX4's tuned gimbal model. i_max/i_min=0
+         disables integral windup (pure PD control). -->
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>gimbal_pan_joint</joint_name><topic>/gimbal/cmd_pan</topic>
+      <p_gain>0.3</p_gain><i_gain>0.02</i_gain><d_gain>0.02</d_gain>
+      <i_max>0</i_max><i_min>0</i_min><cmd_max>0.3</cmd_max><cmd_min>-0.3</cmd_min>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>gimbal_roll_joint</joint_name><topic>/gimbal/cmd_roll</topic>
+      <p_gain>0.8</p_gain><i_gain>0.035</i_gain><d_gain>0.02</d_gain>
+      <i_max>0</i_max><i_min>0</i_min><cmd_max>0.3</cmd_max><cmd_min>-0.3</cmd_min>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>gimbal_pitch_joint</joint_name><topic>/gimbal/cmd_tilt</topic>
+      <p_gain>0.8</p_gain><i_gain>0.01245</i_gain><d_gain>0.015</d_gain>
+      <i_max>0</i_max><i_min>0</i_min><cmd_max>0.3</cmd_max><cmd_min>-0.3</cmd_min>
+    </plugin>
+
+    <!-- publish joint angles so ROS/robot_state_publisher can move the gimbal TF -->
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <topic>/gimbal/joint_state</topic>
+    </plugin>
+  </model>
+</sdf>

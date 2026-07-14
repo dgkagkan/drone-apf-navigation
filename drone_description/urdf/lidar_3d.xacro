@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!-- 3D lidar link (top). Matches the PX4 gz model: lidar_3d_link at
+         0 0 0.26 relative to base_link. Viz/TF only (sensor-only) so
+         robot_state_publisher publishes the TF the /scan_3d/points cloud
+         needs; the actual 3D gpu_lidar lives in the PX4 SDF model. -->
+    <link name="lidar_3d_link">
+        <xacro:cylinder_inertia m="0.0001" r="0.03" length="0.04"
+                                o_xyz="0 0 0" o_rpy="0 0 0"/>
+    </link>
+
+</robot>

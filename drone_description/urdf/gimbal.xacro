@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!-- 3-axis PTZ gimbal (pan/roll/tilt) + camera. Mirrors the PX4 gz model
+         exactly: gimbal_pan_link at 0 0 -0.18 relative to base_link (below
+         the fuselage, clear of the props/wings — was 0.15 0 -0.05, which sat
+         inside the body envelope and looked straight at the propeller/arm),
+         yaw about Z, gimbal_roll_link (roll about X), gimbal_pitch_link
+         (pitch about Y) carrying the camera. Viz/TF only (sensor-only, no
+         visual/collision); joint angles are driven by the PX4 SDF's
+         JointPositionController plugins via /gimbal/cmd_pan|roll|tilt and fed
+         back to robot_state_publisher via /gimbal/joint_state. -->
+
+    <link name="gimbal_pan_link">
+        <xacro:cylinder_inertia m="0.05" r="0.02" length="0.02"
+                                o_xyz="0 0 0" o_rpy="0 0 0"/>
+    </link>
+
+    <joint name="gimbal_pan_joint" type="revolute">
+        <parent link="base_link"/>
+        <child link="gimbal_pan_link"/>
+        <origin xyz="0 0 -0.18" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-3.14159" upper="3.14159" effort="10" velocity="3"/>
+    </joint>
+
+    <link name="gimbal_roll_link">
+        <xacro:cylinder_inertia m="0.05" r="0.02" length="0.02"
+                                o_xyz="0 0 0" o_rpy="0 0 0"/>
+    </link>
+
+    <joint name="gimbal_roll_joint" type="revolute">
+        <parent link="gimbal_pan_link"/>
+        <child link="gimbal_roll_link"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <axis xyz="1 0 0"/>
+        <limit lower="-0.785" upper="0.785" effort="10" velocity="3"/>
+    </joint>
+
+    <link name="gimbal_pitch_link">
+        <xacro:cylinder_inertia m="0.05" r="0.02" length="0.02"
+                                o_xyz="0 0 0" o_rpy="0 0 0"/>
+    </link>
+
+    <joint name="gimbal_pitch_joint" type="revolute">
+        <parent link="gimbal_roll_link"/>
+        <child link="gimbal_pitch_link"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-1.5708" upper="1.5708" effort="10" velocity="3"/>
+    </joint>
+
+</robot>

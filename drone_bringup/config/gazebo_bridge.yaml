@@ -1,0 +1,65 @@
+# ros_gz_bridge config for the PX4 VTOL sim.
+# Only gz-native topics are bridged here. The drone's pose/odometry and
+# vehicle_status come from PX4 over Micro-XRCE-DDS (px4_msgs), NOT from gz.
+#
+#   /clock          : keep ROS time in sync with the gz sim (use_sim_time)
+#   /scan_3d/points : 3D gpu_lidar (top) -> sensor_msgs/PointCloud2
+#   /lidar_down     : downward 1-beam rangefinder -> sensor_msgs/LaserScan
+#                     (ranges[0] = height above ground)
+#   /gimbal/cmd_*   : PTZ gimbal pan/roll/tilt target angle (rad), ROS -> gz
+#   /gimbal_camera  : PTZ camera -> sensor_msgs/Image (+ camera_info)
+#   /gimbal/joint_state : gimbal joint angles, gz -> ROS (for robot_state_publisher)
+
+- ros_topic_name: "/clock"
+  gz_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/scan_3d/points"
+  gz_topic_name: "/scan_3d/points"
+  ros_type_name: "sensor_msgs/msg/PointCloud2"
+  gz_type_name: "gz.msgs.PointCloudPacked"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/lidar_down"
+  gz_topic_name: "/lidar_down"
+  ros_type_name: "sensor_msgs/msg/LaserScan"
+  gz_type_name: "gz.msgs.LaserScan"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/gimbal/cmd_pan"
+  gz_topic_name: "/gimbal/cmd_pan"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "/gimbal/cmd_tilt"
+  gz_topic_name: "/gimbal/cmd_tilt"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "/gimbal/cmd_roll"
+  gz_topic_name: "/gimbal/cmd_roll"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "/gimbal_camera/image_raw"
+  gz_topic_name: "/gimbal_camera"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/gimbal_camera/camera_info"
+  gz_topic_name: "/gimbal_camera/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/gimbal/joint_state"
+  gz_topic_name: "/gimbal/joint_state"
+  ros_type_name: "sensor_msgs/msg/JointState"
+  gz_type_name: "gz.msgs.Model"
+  direction: GZ_TO_ROS

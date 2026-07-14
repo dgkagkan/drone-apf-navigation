@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<robot name="drone" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!-- Simplified VTOL description for RViz / TF only.
+         The actual flight model is PX4's SDF (standard_vtol_lidar); this URDF
+         is a lightweight stand-in so robot_state_publisher can broadcast the
+         sensor frames (lidar_3d_link, lidar_down_link, gimbal_*) and RViz can
+         show the drone + its 3D lidar cloud + PTZ gimbal. base_link is a
+         plain box (no PX4 mesh). -->
+
+    <xacro:include filename="common_properties.xacro"/>
+    <xacro:include filename="lidar_3d.xacro"/>
+    <xacro:include filename="lidar_down.xacro"/>
+    <xacro:include filename="gimbal.xacro"/>
+
+    <!-- rough VTOL body envelope -->
+    <xacro:property name="body_x" value="0.50"/>
+    <xacro:property name="body_y" value="0.50"/>
+    <xacro:property name="body_z" value="0.20"/>
+
+    <link name="base_link">
+        <visual>
+            <geometry>
+                <box size="${body_x} ${body_y} ${body_z}"/>
+            </geometry>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <material name="orange"/>
+        </visual>
+        <collision>
+            <geometry>
+                <box size="${body_x} ${body_y} ${body_z}"/>
+            </geometry>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+        </collision>
+        <xacro:box_inertia m="1.5" x="${body_x}" y="${body_y}" z="${body_z}"
+                           o_xyz="0 0 0" o_rpy="0 0 0"/>
+    </link>
+
+    <!-- 3D lidar mounted 0.26 m above base_link — identical to the PX4 model -->
+    <joint name="lidar_3d_joint" type="fixed">
+        <parent link="base_link"/>
+        <child link="lidar_3d_link"/>
+        <origin xyz="0 0 0.26" rpy="0 0 0"/>
+    </joint>
+
+    <!-- downward rangefinder 0.1 m below base_link, link pitched +90 deg so its
+         +X points down (matches the PX4 model, so RViz shows the point below) -->
+    <joint name="lidar_down_joint" type="fixed">
+        <parent link="base_link"/>
+        <child link="lidar_down_link"/>
+        <origin xyz="0 0 -0.1" rpy="0 1.5708 0"/>
+    </joint>
+
+    <!-- PTZ gimbal (pan/roll/tilt) + camera: links & joints defined in
+         gimbal.xacro, attached to base_link there. -->
+
+</robot>

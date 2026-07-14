@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!-- Downward rangefinder link (bottom). Matches the PX4 gz model:
+         lidar_down_link at 0 0 -0.1 relative to base_link, pitched +90 deg.
+         Viz/TF only (sensor-only) so robot_state_publisher publishes the TF
+         for the /lidar_down reading; the actual sensor lives in the PX4 SDF. -->
+    <link name="lidar_down_link">
+        <xacro:cylinder_inertia m="0.0001" r="0.02" length="0.02"
+                                o_xyz="0 0 0" o_rpy="0 0 0"/>
+    </link>
+
+</robot>
