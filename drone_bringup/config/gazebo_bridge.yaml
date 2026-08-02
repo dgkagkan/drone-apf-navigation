@@ -4,8 +4,7 @@
 #
 #   /clock          : keep ROS time in sync with the gz sim (use_sim_time)
 #   /scan_3d/points : 3D gpu_lidar (top) -> sensor_msgs/PointCloud2
-#   /lidar_down     : downward 1-beam rangefinder -> sensor_msgs/LaserScan
-#                     (ranges[0] = height above ground)
+#   /lidar_down/points : downward landing lidar -> sensor_msgs/PointCloud2
 #   /gimbal/cmd_*   : PTZ gimbal pan/roll/tilt target angle (rad), ROS -> gz
 #   /gimbal_camera  : PTZ camera -> sensor_msgs/Image (+ camera_info)
 #   /gimbal/joint_state : gimbal joint angles, gz -> ROS (for robot_state_publisher)
@@ -22,10 +21,16 @@
   gz_type_name: "gz.msgs.PointCloudPacked"
   direction: GZ_TO_ROS
 
-- ros_topic_name: "/lidar_down"
-  gz_topic_name: "/lidar_down"
-  ros_type_name: "sensor_msgs/msg/LaserScan"
-  gz_type_name: "gz.msgs.LaserScan"
+- ros_topic_name: "/lidar_down/points"
+  gz_topic_name: "/lidar_down/points"
+  ros_type_name: "sensor_msgs/msg/PointCloud2"
+  gz_type_name: "gz.msgs.PointCloudPacked"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/drone/ground_truth/odometry"
+  gz_topic_name: "/drone/ground_truth/odometry"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
   direction: GZ_TO_ROS
 
 - ros_topic_name: "/gimbal/cmd_pan"

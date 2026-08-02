@@ -1,0 +1,795 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9">
+  <world name="optuna_course">
+    <physics type="ode">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>250</real_time_update_rate>
+    </physics>
+
+    <gravity>0 0 -9.8</gravity>
+    <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
+    <atmosphere type="adiabatic"/>
+
+    <scene>
+      <grid>true</grid>
+      <ambient>0.45 0.45 0.45 1</ambient>
+      <background>0.72 0.78 0.84 1</background>
+      <shadows>true</shadows>
+    </scene>
+
+    <light name="sun" type="directional">
+      <pose>325 0 250 0 0 0</pose>
+      <cast_shadows>true</cast_shadows>
+      <diffuse>0.85 0.85 0.85 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.4 0.2 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <pose>375 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>800 500</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>800 500</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.22 0.28 0.22 1</ambient>
+            <diffuse>0.28 0.36 0.28 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="course_centerline">
+      <static>true</static>
+      <pose>375 0 0.03 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>750 0.35 0.04</size></box>
+          </geometry>
+          <material>
+            <ambient>0.85 0.85 0.85 1</ambient>
+            <diffuse>0.85 0.85 0.85 1</diffuse>
+            <emissive>0.15 0.15 0.15 1</emissive>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="start_marker">
+      <static>true</static>
+      <pose>0 0 0.06 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>6 12 0.1</size></box>
+          </geometry>
+          <material>
+            <ambient>0.1 0.8 0.2 1</ambient>
+            <diffuse>0.1 0.8 0.2 1</diffuse>
+            <emissive>0.03 0.2 0.05 1</emissive>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="goal_marker">
+      <static>true</static>
+      <pose>700 0 0.06 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>6 12 0.1</size></box>
+          </geometry>
+          <material>
+            <ambient>0.1 0.4 1.0 1</ambient>
+            <diffuse>0.1 0.4 1.0 1</diffuse>
+            <emissive>0.03 0.1 0.25 1</emissive>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Stage 1: sparse LiDAR target, centered on the nominal route. -->
+    <model name="stage_1_thin_pole">
+      <static>true</static>
+      <pose>100 0 15 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1 1 30</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1 1 30</size></box></geometry>
+          <material>
+            <ambient>0.95 0.1 0.1 1</ambient>
+            <diffuse>0.95 0.1 0.1 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="repeat_y_plus_100">
+        <pose>0 100 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry><box><size>1 1 30</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1 1 30</size></box></geometry>
+          <material>
+            <ambient>0.95 0.1 0.1 1</ambient>
+            <diffuse>0.95 0.1 0.1 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="repeat_y_minus_100">
+        <pose>0 -100 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry><box><size>1 1 30</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1 1 30</size></box></geometry>
+          <material>
+            <ambient>0.95 0.1 0.1 1</ambient>
+            <diffuse>0.95 0.1 0.1 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Stage 2: offset obstacle; right of a vehicle travelling along +X. -->
+    <model name="stage_2_right_offset_tower">
+      <static>true</static>
+      <pose>190 -7 15 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4 4 30</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4 4 30</size></box></geometry>
+          <material>
+            <ambient>1.0 0.45 0.05 1</ambient>
+            <diffuse>1.0 0.45 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="repeat_y_plus_100">
+        <pose>0 100 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry><box><size>4 4 30</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4 4 30</size></box></geometry>
+          <material>
+            <ambient>1.0 0.45 0.05 1</ambient>
+            <diffuse>1.0 0.45 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="repeat_y_minus_100">
+        <pose>0 -100 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry><box><size>4 4 30</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4 4 30</size></box></geometry>
+          <material>
+            <ambient>1.0 0.45 0.05 1</ambient>
+            <diffuse>1.0 0.45 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Stage 3: low and wide, intended to exercise vertical escape. -->
+    <model name="stage_3_low_wide_wall">
+      <static>true</static>
+      <pose>280 0 8.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>3 120 17</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>3 120 17</size></box></geometry>
+          <material>
+            <ambient>0.95 0.85 0.05 1</ambient>
+            <diffuse>0.95 0.85 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="repeat_y_plus_120">
+        <pose>0 120 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry><box><size>3 120 17</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>3 120 17</size></box></geometry>
+          <material>
+            <ambient>0.95 0.85 0.05 1</ambient>
+            <diffuse>0.95 0.85 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="repeat_y_minus_120">
+        <pose>0 -120 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry><box><size>3 120 17</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>3 120 17</size></box></geometry>
+          <material>
+            <ambient>0.95 0.85 0.05 1</ambient>
+            <diffuse>0.95 0.85 0.05 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Stage 4: 13.5 m center gate, then alternating 3.5 m panels and 6.5 m openings. -->
+    <model name="stage_4_slatted_gate">
+      <static>true</static>
+      <pose>380 0 25 0 0 0</pose>
+      <link name="slatted_wall">
+        <collision name="panel_01_collision">
+          <pose>0 -168.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_01_visual">
+          <pose>0 -168.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_02_collision">
+          <pose>0 -158.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_02_visual">
+          <pose>0 -158.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_03_collision">
+          <pose>0 -148.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_03_visual">
+          <pose>0 -148.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_04_collision">
+          <pose>0 -138.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_04_visual">
+          <pose>0 -138.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_05_collision">
+          <pose>0 -128.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_05_visual">
+          <pose>0 -128.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_06_collision">
+          <pose>0 -118.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_06_visual">
+          <pose>0 -118.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_07_collision">
+          <pose>0 -108.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_07_visual">
+          <pose>0 -108.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_08_collision">
+          <pose>0 -98.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_08_visual">
+          <pose>0 -98.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_09_collision">
+          <pose>0 -88.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_09_visual">
+          <pose>0 -88.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_10_collision">
+          <pose>0 -78.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_10_visual">
+          <pose>0 -78.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_11_collision">
+          <pose>0 -68.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_11_visual">
+          <pose>0 -68.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_12_collision">
+          <pose>0 -58.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_12_visual">
+          <pose>0 -58.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_13_collision">
+          <pose>0 -48.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_13_visual">
+          <pose>0 -48.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_14_collision">
+          <pose>0 -38.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_14_visual">
+          <pose>0 -38.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_15_collision">
+          <pose>0 -28.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_15_visual">
+          <pose>0 -28.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_16_collision">
+          <pose>0 -18.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_16_visual">
+          <pose>0 -18.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_17_collision">
+          <pose>0 -8.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_17_visual">
+          <pose>0 -8.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_18_collision">
+          <pose>0 8.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_18_visual">
+          <pose>0 8.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_19_collision">
+          <pose>0 18.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_19_visual">
+          <pose>0 18.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_20_collision">
+          <pose>0 28.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_20_visual">
+          <pose>0 28.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_21_collision">
+          <pose>0 38.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_21_visual">
+          <pose>0 38.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_22_collision">
+          <pose>0 48.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_22_visual">
+          <pose>0 48.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_23_collision">
+          <pose>0 58.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_23_visual">
+          <pose>0 58.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_24_collision">
+          <pose>0 68.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_24_visual">
+          <pose>0 68.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_25_collision">
+          <pose>0 78.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_25_visual">
+          <pose>0 78.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_26_collision">
+          <pose>0 88.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_26_visual">
+          <pose>0 88.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_27_collision">
+          <pose>0 98.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_27_visual">
+          <pose>0 98.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_28_collision">
+          <pose>0 108.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_28_visual">
+          <pose>0 108.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_29_collision">
+          <pose>0 118.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_29_visual">
+          <pose>0 118.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_30_collision">
+          <pose>0 128.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_30_visual">
+          <pose>0 128.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_31_collision">
+          <pose>0 138.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_31_visual">
+          <pose>0 138.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_32_collision">
+          <pose>0 148.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_32_visual">
+          <pose>0 148.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_33_collision">
+          <pose>0 158.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_33_visual">
+          <pose>0 158.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+        <collision name="panel_34_collision">
+          <pose>0 168.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+        </collision>
+        <visual name="panel_34_visual">
+          <pose>0 168.5 0 0 0 0</pose>
+          <geometry><box><size>3 3.5 50</size></box></geometry>
+          <material>
+            <ambient>0.05 0.8 0.9 1</ambient>
+            <diffuse>0.05 0.8 0.9 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Stage 5: consecutive targets inside overlapping 70 m LiDAR ranges. -->
+    <model name="stage_5_first_obstacle">
+      <static>true</static>
+      <pose>470 4 15 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4 4 30</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4 4 30</size></box></geometry>
+          <material>
+            <ambient>0.85 0.15 0.75 1</ambient>
+            <diffuse>0.85 0.15 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="repeat_y_plus_100">
+        <pose>0 100 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry><box><size>4 4 30</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4 4 30</size></box></geometry>
+          <material>
+            <ambient>0.85 0.15 0.75 1</ambient>
+            <diffuse>0.85 0.15 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="repeat_y_minus_100">
+        <pose>0 -100 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry><box><size>4 4 30</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4 4 30</size></box></geometry>
+          <material>
+            <ambient>0.85 0.15 0.75 1</ambient>
+            <diffuse>0.85 0.15 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="stage_5_second_obstacle">
+      <static>true</static>
+      <pose>515 -4 12 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4 18 24</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4 18 24</size></box></geometry>
+          <material>
+            <ambient>0.65 0.15 0.85 1</ambient>
+            <diffuse>0.65 0.15 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="repeat_y_plus_100">
+        <pose>0 100 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry><box><size>4 18 24</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4 18 24</size></box></geometry>
+          <material>
+            <ambient>0.65 0.15 0.85 1</ambient>
+            <diffuse>0.65 0.15 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="repeat_y_minus_100">
+        <pose>0 -100 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry><box><size>4 18 24</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4 18 24</size></box></geometry>
+          <material>
+            <ambient>0.65 0.15 0.85 1</ambient>
+            <diffuse>0.65 0.15 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Stage 6: broad wall rotated 30 degrees around the vertical axis. -->
+    <model name="stage_6_angled_wall">
+      <static>true</static>
+      <pose>580 0 11 0 0 0.5235987756</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>3 80 22</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>3 80 22</size></box></geometry>
+          <material>
+            <ambient>0.25 0.2 0.95 1</ambient>
+            <diffuse>0.25 0.2 0.95 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="repeat_y_plus_100">
+        <pose>50 86.6025403784 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry><box><size>3 80 22</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>3 80 22</size></box></geometry>
+          <material>
+            <ambient>0.25 0.2 0.95 1</ambient>
+            <diffuse>0.25 0.2 0.95 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="repeat_y_minus_100">
+        <pose>-50 -86.6025403784 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry><box><size>3 80 22</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>3 80 22</size></box></geometry>
+          <material>
+            <ambient>0.25 0.2 0.95 1</ambient>
+            <diffuse>0.25 0.2 0.95 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>47.397971057728974</latitude_deg>
+      <longitude_deg>8.546163739800146</longitude_deg>
+      <elevation>0</elevation>
+    </spherical_coordinates>
+  </world>
+</sdf>

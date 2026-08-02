@@ -5,8 +5,9 @@ Brings up:
                                lidar_down_link, and the PTZ gimbal chain
                                (driven live by /gimbal/joint_state, bridged
                                from gz -> remapped to the RSP's "joint_states")
-  * vtol_tf_broadcaster    -> map->base_link from PX4 (default) so the drone MOVES
-  * rviz2                  -> drone_lidar.rviz
+  * vehicle_tf_broadcaster -> map->base_link from Gazebo ground truth (default)
+                               so LiDAR mapping remains stable during turns
+  * rviz2                  -> drone_lidar.rviz, camera follows base_link
 
 The gz->ROS bridge (/scan_3d/points, /lidar_down, /gimbal_camera, /clock, ...)
 is NOT here; it lives in sim.launch.py, so sensor topics are available whether
@@ -14,7 +15,8 @@ or not RViz is running.
 
 TF for map->base_link comes from ONE of two sources (never both, to avoid a
 double publisher):
-  * use_broadcaster:=true (default) -> vtol_tf_broadcaster, live PX4 pose.
+  * use_broadcaster:=true (default) -> vehicle_tf_broadcaster, live Gazebo pose.
+    Set use_ground_truth_tf:=false to use the PX4 estimator instead.
   * use_static_tf:=true             -> a fixed map->base_link at the origin,
                                        useful when PX4 isn't publishing yet.
 
@@ -35,6 +37,7 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_static_tf = LaunchConfiguration("use_static_tf")
     use_broadcaster = LaunchConfiguration("use_broadcaster")
+    use_ground_truth_tf = LaunchConfiguration("use_ground_truth_tf")
 
     description_share = FindPackageShare("drone_description")
 
@@ -48,7 +51,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "use_broadcaster",
             default_value="true",
-            description="Run vtol_tf_broadcaster for a live map->base_link from PX4.",
+            description="Run vehicle_tf_broadcaster for a live map->base_link.",
+        ),
+        DeclareLaunchArgument(
+            "use_ground_truth_tf",
+            default_value="true",
+            description="Use Gazebo ground-truth pose for motion-stable LiDAR mapping.",
         ),
         DeclareLaunchArgument(
             "use_static_tf",
@@ -73,12 +81,15 @@ def generate_launch_description():
 
         # Live map->base_link from the PX4 estimator (default).
         Node(
-            package="commander_cpp",
-            executable="vtol_tf_broadcaster",
-            name="vtol_tf_broadcaster",
+            package="drone_control",
+            executable="vehicle_tf_broadcaster_node",
+            name="vehicle_tf_broadcaster",
             output="screen",
             condition=IfCondition(use_broadcaster),
-            parameters=[{"use_sim_time": use_sim_time}],
+            parameters=[{
+                "use_sim_time": use_sim_time,
+                "use_ground_truth": use_ground_truth_tf,
+            }],
         ),
 
         # Fixed map->base_link fallback (only if the broadcaster is off).

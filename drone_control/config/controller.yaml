@@ -1,0 +1,128 @@
+manual_control:
+  ros__parameters:
+    mc_speed: 4.0
+    mc_climb_speed: 2.0
+    mc_yaw_rate_deg: 60.0
+    fw_speed_min: 10.0
+    fw_speed_cruise: 20.0
+    fw_speed_max: 20.0
+    fw_turn_rate_deg: 25.0
+    fw_climb_speed: 4.0
+    minimum_altitude: 2.0
+    joy_timeout: 0.5
+
+gimbal_control:
+  ros__parameters:
+    pan_rate_deg_s: 60.0
+    tilt_rate_deg_s: 45.0
+    pan_min_deg: -180.0
+    pan_max_deg: 180.0
+    tilt_min_deg: -90.0
+    tilt_max_deg: 90.0
+    joy_timeout: 0.5
+
+px4_gateway:
+  ros__parameters:
+    command_timeout_s: 0.5
+    fw_lookahead_m: 40.0
+    max_horizontal_speed_m_s: 25.0
+    max_vertical_speed_m_s: 5.0
+    minimum_altitude_m: 0.5
+    target_system: 1
+
+flight_supervisor:
+  ros__parameters:
+    takeoff_tolerance_m: 0.5
+    landed_altitude_m: 0.3
+    vehicle_command_period_s: 1.0
+
+automated_mission:
+  ros__parameters:
+    goal_x: 700.0
+    goal_y: 0.0
+    cruise_altitude: 15.0
+    goal_approach_distance: 30.0
+    goal_tolerance: 5.0
+    landing_handover_altitude: 3.0
+    landing_altitude_tolerance: 0.5
+    landing_max_horizontal_speed: 0.8
+    landing_settle_time: 1.0
+    takeoff_climb_speed: 3.0
+    auto_start_delay: 2.0
+    mc_speed: 4.0
+    mc_climb_speed: 2.0
+    fw_speed_min: 10.0
+    fw_speed_cruise: 20.0
+    fw_speed_max: 20.0
+    avoidance_enabled: true
+    obstacle_timeout_s: 0.5
+
+command_mux:
+  ros__parameters:
+    command_timeout_s: 0.5
+
+lidar_processor:
+  ros__parameters:
+    input_topic: /scan_3d/points
+    output_topic: /perception/obstacles
+    output_frame: map
+    min_range_m: 0.3
+    max_range_m: 78.0
+    ground_height_m: 0.4
+    voxel_size_m: 0.2
+
+apf_safety:
+  ros__parameters:
+    avoidance_enabled: true
+    command_timeout_s: 0.5
+    obstacle_timeout_s: 0.5
+    obstacle_influence_radius: 77.96063615194443
+    fw_avoid_trigger_dist: 73.5424773407324
+    mc_trail_half_width: 2.5
+    fw_trail_half_width: 11.66155241746725
+    lidar_vertical_half_fov_deg: 15.0
+    mc_attractive_gain: 1.0
+    fw_attractive_gain: 0.510689137310558
+    mc_repulsive_gain: 2.5
+    fw_repulsive_gain: 10.414042935641696
+    repulsive_distance_power: 1.054655071200557
+    fw_max_avoid_angle_deg: 16.805443865619306
+    fw_max_avoid_pitch_deg: 13.988346309184921
+    vertical_escape_pitch_gain: 1.16097076371247
+    apf_clearance_radius: 1.5
+    mc_speed: 4.0
+    mc_climb_speed: 2.0
+    avoidance_clear_hold_time: 2.0
+
+navigation_server:
+  ros__parameters:
+    geofence.cube_size_m: 2000.0
+    geofence.min_altitude_m: 2.0
+    goal_tolerance_m: 25.0
+    altitude_tolerance_m: 2.0
+    goal_chain_grace_period_s: 0.25
+    default_speed_m_s: 20.0
+    max_speed_m_s: 20.0
+    altitude_gain: 0.8
+    max_vertical_speed_m_s: 3.0
+
+navigation_client:
+  ros__parameters:
+    cruise_speed_m_s: 20.0
+    feedback_period_s: 0.5
+    takeoff_altitude_m: 15.0
+    takeoff_climb_speed_m_s: 2.0
+
+apf_visualizer:
+  ros__parameters:
+    fw_max_bank_deg: 50.0
+    fw_max_pitch_deg: 13.988346309184921
+    nominal_path_min_fw_speed_m_s: 5.0
+    nominal_path_sample_distance_m: 2.0
+    nominal_path_max_points: 3000
+    goal_tolerance_m: 25.0
+    altitude_tolerance_m: 2.0
+    force_scale: 6.0
+    max_arrow_length: 3.0
+    force_smoothing_alpha: 0.2
+    path_sample_distance: 0.5

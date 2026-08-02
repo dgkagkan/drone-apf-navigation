@@ -1,0 +1,4 @@
+geometry_msgs/PoseStamped target
+---
+bool valid
+string reason

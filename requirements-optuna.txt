@@ -1,0 +1,4 @@
+optuna==4.9.0
+optuna-dashboard==0.20.0
+plotly==6.9.0
+ruff==0.15.22

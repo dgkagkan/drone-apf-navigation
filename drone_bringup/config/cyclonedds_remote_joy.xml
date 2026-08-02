@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Remote laptop: publishes only /joy to the main PX4/Gazebo PC. -->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <General>
+      <AllowMulticast>false</AllowMulticast>
+      <Interfaces>
+        <NetworkInterface name="lo" priority="10" allow_multicast="false" />
+        <NetworkInterface name="tailscale0" priority="5" allow_multicast="false" />
+      </Interfaces>
+    </General>
+    <Discovery>
+      <Peers AddLocalhost="true">
+        <!-- Main PX4/Gazebo PC Tailscale IP. Change only if the main PC changes. -->
+        <Peer Address="100.65.195.88" />
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

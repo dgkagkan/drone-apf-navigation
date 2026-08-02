@@ -46,7 +46,8 @@
               <max_angle>3.14159</max_angle>
             </horizontal>
             <vertical>
-              <samples>16</samples>
+              <!-- Odd count includes one ray layer exactly at 0 deg elevation. -->
+              <samples>17</samples>
               <resolution>1</resolution>
               <min_angle>-0.261799</min_angle>
               <max_angle>0.261799</max_angle>
@@ -58,7 +59,7 @@
                own wings. This creates a 1.2 m dead zone around the drone. -->
           <range>
             <min>1.2</min>
-            <max>30.0</max>
+            <max>80.0</max>
             <resolution>0.01</resolution>
           </range>
         </lidar>
@@ -70,12 +71,10 @@
       <child>lidar_3d_link</child>
     </joint>
 
-    <!-- Downward 1D lidar (rangefinder) — measures height above ground.
-         Single ray pointing straight down; the LINK is pitched +90 deg so its
-         +X axis (the ray) points DOWN and the published LaserScan frame aligns
-         with the ray (RViz draws the point at the ground). Sensor-only,
-         negligible mass -> physics unchanged. gz topic "lidar_down";
-         ranges[0] = distance to floor. -->
+    <!-- Downward 3D landing lidar. The link's +X axis points down and the
+         wide angular scan covers the VTOL footprint even during the last
+         meter of descent. Software clips the cloud to the exact landing box.
+         Publishes /lidar_down/points for landing-site APF. -->
     <link name="lidar_down_link">
       <pose relative_to="base_link">0 0 -0.1 0 1.5708 0</pose>
       <inertial>
@@ -94,20 +93,21 @@
         <lidar>
           <scan>
             <horizontal>
-              <samples>1</samples>
+              <samples>25</samples>
               <resolution>1</resolution>
-              <min_angle>0</min_angle>
-              <max_angle>0</max_angle>
+              <min_angle>-0.9</min_angle>
+              <max_angle>0.9</max_angle>
             </horizontal>
             <vertical>
-              <samples>1</samples>
-              <min_angle>0</min_angle>
-              <max_angle>0</max_angle>
+              <samples>25</samples>
+              <resolution>1</resolution>
+              <min_angle>-0.9</min_angle>
+              <max_angle>0.9</max_angle>
             </vertical>
           </scan>
           <range>
             <min>0.05</min>
-            <max>50.0</max>
+            <max>10.0</max>
             <resolution>0.01</resolution>
           </range>
         </lidar>
@@ -220,6 +220,17 @@
     <!-- publish joint angles so ROS/robot_state_publisher can move the gimbal TF -->
     <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
       <topic>/gimbal/joint_state</topic>
+    </plugin>
+
+    <!-- Ground-truth pose for motion-stable visualization mapping. LiDAR and
+         this odometry share Gazebo's clock, avoiding PX4 estimator lag while
+         the vehicle is turning. This topic is never used for flight control. -->
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>map</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_topic>/drone/ground_truth/odometry</odom_topic>
+      <dimensions>3</dimensions>
+      <odom_publish_frequency>100</odom_publish_frequency>
     </plugin>
   </model>
 </sdf>

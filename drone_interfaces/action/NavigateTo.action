@@ -1,0 +1,17 @@
+geometry_msgs/PoseStamped target
+float64 cruise_speed_m_s
+bool use_fixed_wing
+---
+uint8 SUCCEEDED=0
+uint8 CANCELED=1
+uint8 ABORTED=2
+uint8 result_code
+string message
+float64 final_distance_m
+---
+string phase
+float64 remaining_distance_m
+bool avoidance_active
+geometry_msgs/Point position_enu
+geometry_msgs/Vector3 velocity_enu
+float64 speed_m_s

@@ -1,0 +1,4 @@
+bool arm
+---
+bool accepted
+string message

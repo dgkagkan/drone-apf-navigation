@@ -1,0 +1,8 @@
+std_msgs/Header header
+uint8 vehicle_mode
+uint8 command_source
+bool avoidance_active
+float64 nearest_path_obstacle_distance_m
+geometry_msgs/Vector3 attractive_force_enu
+geometry_msgs/Vector3 repulsive_force_enu
+geometry_msgs/Vector3 safe_command_enu

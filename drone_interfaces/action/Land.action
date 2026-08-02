@@ -1,0 +1,7 @@
+bool disarm_after_landing
+---
+bool success
+string message
+---
+string phase
+float64 current_altitude_m

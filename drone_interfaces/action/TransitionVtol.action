@@ -1,0 +1,7 @@
+bool fixed_wing
+---
+bool success
+string message
+---
+string phase
+uint8 current_vehicle_mode
