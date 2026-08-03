@@ -1,4 +1,5 @@
 .vscode/
 .venv/
-optuna_results/
+/log/
+/optuna_results
 __pycache__/

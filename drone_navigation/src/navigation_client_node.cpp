@@ -20,15 +20,21 @@
 
 #include <drone_interfaces/action/navigate_to.hpp>
 #include <drone_interfaces/action/takeoff.hpp>
+#include <drone_interfaces/msg/apf_telemetry.hpp>
 #include <drone_interfaces/msg/vehicle_state.hpp>
 #include <drone_interfaces/srv/arm.hpp>
+#include <drone_interfaces/srv/set_apf_mode.hpp>
 #include <drone_interfaces/srv/validate_goal.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
+#include <std_srvs/srv/set_bool.hpp>
 
 using Arm = drone_interfaces::srv::Arm;
+using ApfTelemetry = drone_interfaces::msg::ApfTelemetry;
 using NavigateTo = drone_interfaces::action::NavigateTo;
 using NavigateGoalHandle = rclcpp_action::ClientGoalHandle<NavigateTo>;
+using SetApfMode = drone_interfaces::srv::SetApfMode;
+using SetBool = std_srvs::srv::SetBool;
 using Takeoff = drone_interfaces::action::Takeoff;
 using TakeoffGoalHandle = rclcpp_action::ClientGoalHandle<Takeoff>;
 using ValidateGoal = drone_interfaces::srv::ValidateGoal;
@@ -54,8 +60,13 @@ public:
     takeoff_client_ = rclcpp_action::create_client<Takeoff>(this, "/takeoff");
     validation_client_ = create_client<ValidateGoal>("/navigation/validate_goal");
     arm_client_ = create_client<Arm>("/flight/arm");
+    apf_enabled_client_ = create_client<SetBool>("/apf/set_enabled");
+    apf_mode_client_ = create_client<SetApfMode>("/apf/set_mode");
     state_sub_ = create_subscription<VehicleState>(
       "/vehicle/state", 10, std::bind(&NavigationClientNode::onState, this, _1));
+    apf_sub_ = create_subscription<ApfTelemetry>(
+      "/apf/telemetry", rclcpp::QoS(10).reliable().transient_local(),
+      std::bind(&NavigationClientNode::onApfTelemetry, this, _1));
     timer_ = create_wall_timer(
       std::chrono::milliseconds(100), std::bind(&NavigationClientNode::onTimer, this));
 
@@ -81,6 +92,13 @@ private:
     std::lock_guard<std::mutex> lock(data_mutex_);
     state_ = *message;
     have_state_ = true;
+  }
+
+  void onApfTelemetry(const ApfTelemetry::SharedPtr message)
+  {
+    if (message->active_mode.empty()) return;
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    active_apf_mode_ = message->active_mode;
   }
 
   void printLine(const std::string & line)
@@ -117,7 +135,8 @@ private:
   {
     return
       "arm | takeoff [altitude] [climb_speed] | goal [x y z] | speed <m/s> | "
-      "status | queue | cancel | clear | help | quit";
+      "apf <on|off> | apf mode <stable|normal|sport> | status | queue | "
+      "cancel | clear | help | quit";
   }
 
   void printHelp()
@@ -142,7 +161,7 @@ private:
     std::cout << "\033[H\033[2J"
               << "Drone navigation client\n"
               << "Goals are validated, queued, and executed in FIFO order.\n"
-              << "Every goal uses fixed-wing fast mode and the shared 3D APF.\n\n"
+              << "APF safety and its flight profile can be changed live.\n\n"
               << "COMMANDS\n  " << helpText() << "\n\n"
               << "LIVE FEEDBACK\n"
               << (live_feedback_.empty() ? "  Waiting for an active operation..." : live_feedback_)
@@ -349,6 +368,31 @@ private:
         cruise_speed_m_s_ = speed;
         printLine("future goals will use " + formatNumber(speed) + " m/s");
       }
+    } else if (command == "apf") {
+      std::string operation;
+      std::string trailing;
+      if (!(command_stream >> operation)) {
+        printLine(
+          "invalid APF command; expected: apf on | apf off | "
+          "apf mode <stable|normal|sport>");
+      } else if (operation == "on" || operation == "off") {
+        if (command_stream >> trailing) {
+          printLine("invalid APF command; expected: apf on | apf off");
+        } else {
+          requestApfEnabled(operation == "on");
+        }
+      } else if (operation == "mode") {
+        std::string mode;
+        if (!(command_stream >> mode) || command_stream >> trailing) {
+          printLine("invalid APF mode; expected: apf mode <stable|normal|sport>");
+        } else {
+          requestApfMode(mode);
+        }
+      } else {
+        printLine(
+          "invalid APF command; expected: apf on | apf off | "
+          "apf mode <stable|normal|sport>");
+      }
     } else if (command == "status") {
       printStatus();
     } else if (command == "queue") {
@@ -419,6 +463,53 @@ private:
           response->message);
       });
     printLine("arm request sent");
+  }
+
+  void requestApfEnabled(bool enabled)
+  {
+    if (!apf_enabled_client_->service_is_ready()) {
+      printLine("APF COMMAND REJECTED: /apf/set_enabled service is not ready");
+      return;
+    }
+    auto request = std::make_shared<SetBool::Request>();
+    request->data = enabled;
+    apf_enabled_client_->async_send_request(
+      request,
+      [this](rclcpp::Client<SetBool>::SharedFuture future) {
+        const auto response = future.get();
+        const std::string prefix = response->success ?
+          "APF COMMAND APPROVED: " : "APF COMMAND REJECTED: ";
+        printLine(prefix + response->message);
+      });
+    printLine(std::string("APF ") + (enabled ? "ON" : "OFF") + " request sent");
+  }
+
+  void requestApfMode(const std::string & mode)
+  {
+    if (mode != "stable" && mode != "normal" && mode != "sport") {
+      printLine("APF MODE REJECTED: expected stable, normal, or sport");
+      return;
+    }
+    if (!apf_mode_client_->service_is_ready()) {
+      printLine("APF MODE REJECTED: /apf/set_mode service is not ready");
+      return;
+    }
+
+    auto request = std::make_shared<SetApfMode::Request>();
+    request->mode = mode;
+    apf_mode_client_->async_send_request(
+      request,
+      [this](rclcpp::Client<SetApfMode>::SharedFuture future) {
+        const auto response = future.get();
+        if (!response->active_mode.empty()) {
+          std::lock_guard<std::mutex> lock(data_mutex_);
+          active_apf_mode_ = response->active_mode;
+        }
+        printLine(
+          std::string(response->accepted ? "APF MODE APPROVED: " : "APF MODE DECLINED: ") +
+          response->message);
+      });
+    printLine("APF mode request sent: " + mode);
   }
 
   void requestTakeoff(double altitude_m, double climb_speed_m_s)
@@ -555,6 +646,10 @@ private:
       NavigateGoalHandle::SharedPtr,
       const std::shared_ptr<const NavigateTo::Feedback> feedback)
       {
+        if (!feedback->apf_mode.empty()) {
+          std::lock_guard<std::mutex> lock(data_mutex_);
+          active_apf_mode_ = feedback->apf_mode;
+        }
         const auto current_time = std::chrono::steady_clock::now();
         if (last_feedback_print_.time_since_epoch().count() != 0 &&
           std::chrono::duration<double>(current_time - last_feedback_print_).count() <
@@ -566,7 +661,9 @@ private:
         std::ostringstream status;
         status << std::fixed << std::setprecision(1)
                << "  goal #" << goal_id << " | " << feedback->phase
-               << " | APF=" << (feedback->avoidance_active ? "ACTIVE" : "clear") << '\n'
+               << " | APF=" << (feedback->avoidance_active ? "ACTIVE" : "clear")
+               << " | mode=" << (feedback->apf_mode.empty() ? "unknown" : feedback->apf_mode)
+               << '\n'
                << "  position=(" << feedback->position_enu.x << ", "
                << feedback->position_enu.y << ", " << feedback->position_enu.z << ")"
                << " | remaining=" << feedback->remaining_distance_m << "m\n"
@@ -647,13 +744,17 @@ private:
   {
     VehicleState state;
     bool available = false;
+    std::string apf_mode;
     {
       std::lock_guard<std::mutex> lock(data_mutex_);
       state = state_;
       available = have_state_;
+      apf_mode = active_apf_mode_;
     }
     if (!available) {
-      printLine("vehicle state is not available");
+      printLine(
+        "vehicle state is not available | APF mode=" +
+        (apf_mode.empty() ? "unknown" : apf_mode));
       return;
     }
     const double speed = std::sqrt(
@@ -668,7 +769,8 @@ private:
          << state.velocity_enu.y << ", " << state.velocity_enu.z << ")"
          << " | speed=" << speed << "m/s"
          << " | armed=" << (state.armed ? "yes" : "no")
-         << " | offboard=" << (state.offboard ? "yes" : "no");
+         << " | offboard=" << (state.offboard ? "yes" : "no")
+         << " | APF mode=" << (apf_mode.empty() ? "unknown" : apf_mode);
     printLine(line.str());
   }
 
@@ -690,6 +792,7 @@ private:
   std::mutex data_mutex_;
   std::mutex output_mutex_;
   VehicleState state_;
+  std::string active_apf_mode_;
   bool have_state_ {false};
   bool validation_in_progress_ {false};
   bool goal_request_in_progress_ {false};
@@ -705,7 +808,10 @@ private:
   rclcpp_action::Client<Takeoff>::SharedPtr takeoff_client_;
   rclcpp::Client<ValidateGoal>::SharedPtr validation_client_;
   rclcpp::Client<Arm>::SharedPtr arm_client_;
+  rclcpp::Client<SetBool>::SharedPtr apf_enabled_client_;
+  rclcpp::Client<SetApfMode>::SharedPtr apf_mode_client_;
   rclcpp::Subscription<VehicleState>::SharedPtr state_sub_;
+  rclcpp::Subscription<ApfTelemetry>::SharedPtr apf_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
   static constexpr std::size_t max_recent_messages_ {8};
   std::deque<std::string> recent_messages_;

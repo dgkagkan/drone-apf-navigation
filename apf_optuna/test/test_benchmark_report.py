@@ -51,34 +51,54 @@ def test_consistent_scores_break_equal_success_rate_tie():
 
 
 def test_failed_candidate_has_no_success_only_metrics():
-    ranking = rank_candidates([
-        make_record(10, 100.0, 'collision', 1_100_000.0),
-    ])
+    ranking = rank_candidates(
+        [
+            make_record(10, 100.0, 'collision', 1_100_000.0),
+        ]
+    )
 
     assert ranking[0]['success_rate_percent'] == 0.0
     assert ranking[0]['mean_fw_attitude_oscillation_deg_per_s'] is None
 
 
 def test_infrastructure_failure_is_not_counted_as_an_attempt():
-    ranking = rank_candidates([
-        make_record(10, 100.0, 'success', 120.0),
-        make_record(10, 100.0, 'startup_timeout', 3_000_000.0),
-    ])
+    ranking = rank_candidates(
+        [
+            make_record(10, 100.0, 'success', 120.0),
+            make_record(10, 100.0, 'startup_timeout', 3_000_000.0),
+        ]
+    )
 
     assert ranking[0]['attempts'] == 1
     assert ranking[0]['successes'] == 1
     assert ranking[0]['success_rate_percent'] == 100.0
-    assert ranking[0]['infrastructure_failures'] == 1
-    assert ranking[0]['infrastructure_outcomes'] == {'startup_timeout': 1}
+    assert ranking[0]['excluded_runs'] == 1
+    assert ranking[0]['excluded_outcomes'] == {'startup_timeout': 1}
 
 
 def test_mission_timeout_is_retried_without_reducing_success_rate():
-    ranking = rank_candidates([
-        make_record(10, 100.0, 'success', 120.0),
-        make_record(10, 100.0, 'timeout', 1_000_000.0),
-    ])
+    ranking = rank_candidates(
+        [
+            make_record(10, 100.0, 'success', 120.0),
+            make_record(10, 100.0, 'timeout', 1_000_000.0),
+        ]
+    )
 
     assert ranking[0]['attempts'] == 1
     assert ranking[0]['success_rate_percent'] == 100.0
-    assert ranking[0]['infrastructure_failures'] == 1
-    assert ranking[0]['infrastructure_outcomes'] == {'timeout': 1}
+    assert ranking[0]['excluded_runs'] == 1
+    assert ranking[0]['excluded_outcomes'] == {'timeout': 1}
+
+
+def test_crash_is_excluded_from_the_fifteen_valid_runs():
+    ranking = rank_candidates(
+        [
+            make_record(10, 100.0, 'success', 120.0),
+            make_record(10, 100.0, 'crash', 1_200_000.0),
+        ]
+    )
+
+    assert ranking[0]['attempts'] == 1
+    assert ranking[0]['success_rate_percent'] == 100.0
+    assert ranking[0]['excluded_runs'] == 1
+    assert ranking[0]['excluded_outcomes'] == {'crash': 1}

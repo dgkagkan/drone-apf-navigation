@@ -9,14 +9,44 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from .geometry import ObstacleCourse
 
 
-NON_APF_FAILURES = frozenset({
-    'controller_exit',
-    'no_telemetry',
-    'simulator_exit',
-    'stalled',
-    'startup_timeout',
-    'timeout',
-})
+NON_APF_FAILURES = frozenset(
+    {
+        'controller_exit',
+        'no_telemetry',
+        'simulator_exit',
+        'stalled',
+        'startup_timeout',
+        'timeout',
+    }
+)
+
+STABILITY_BENCHMARK_OUTCOMES = frozenset({'collision', 'success'})
+
+
+def startup_stage(
+    *,
+    sim_time_advanced: bool,
+    vehicle_state_received: bool,
+    attitude_ready: bool,
+    obstacles_ready: bool,
+    mission_state: str,
+    armed: bool,
+    offboard: bool,
+    flight_started: bool,
+) -> str:
+    if not sim_time_advanced:
+        return 'waiting_for_sim_time'
+    if flight_started:
+        return 'flight_started'
+    if not vehicle_state_received:
+        return 'waiting_for_vehicle_state'
+    if not attitude_ready:
+        return 'waiting_for_attitude'
+    if not obstacles_ready:
+        return 'waiting_for_obstacles'
+    if mission_state == 'priming_offboard' and not (armed and offboard):
+        return 'waiting_for_arm_offboard'
+    return mission_state or 'unknown'
 
 
 class _AxisOscillationTracker:
@@ -96,9 +126,7 @@ class AttitudeOscillationTracker:
     def degrees_per_second(self) -> float:
         if self._measurement_duration <= 0.0:
             return 0.0
-        reversal_excursion = (
-            self._roll.reversal_excursion + self._pitch.reversal_excursion
-        )
+        reversal_excursion = self._roll.reversal_excursion + self._pitch.reversal_excursion
         return math.degrees(reversal_excursion) / self._measurement_duration
 
 
@@ -110,6 +138,7 @@ class TrialMetrics:
     initial_goal_distance: float = -1.0
     closest_goal_distance: float = -1.0
     progress_distance: float = 0.0
+    mission_remaining_distance: float = -1.0
     path_length: float = 0.0
     max_cross_track_error: float = 0.0
     minimum_lidar_distance: float = -1.0
@@ -118,6 +147,13 @@ class TrialMetrics:
     repulsive_force_variation: float = 0.0
     fw_attitude_oscillation_deg_per_s: float = 0.0
     samples: int = 0
+    startup_stage: str = 'waiting_for_telemetry'
+    vehicle_state_received: bool = False
+    attitude_ready: bool = False
+    obstacles_ready: bool = False
+    armed: bool = False
+    offboard: bool = False
+    sim_time_advanced: bool = False
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -158,16 +194,28 @@ class TrialEvaluator(Node):
         self.minimum_geometric_clearance = math.inf
         self.initial_goal_distance = math.inf
         self.closest_goal_distance = math.inf
+        self.max_mission_progress_distance = 0.0
+        self._first_stamp_ns: Optional[int] = None
+        self._last_stamp_ns: Optional[int] = None
 
     def _on_telemetry(self, msg: AutomatedMissionTelemetry) -> None:
         self.latest = msg
         self.samples += 1
+        stamp_ns = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
+        if self._first_stamp_ns is None:
+            self._first_stamp_ns = stamp_ns
+        self._last_stamp_ns = stamp_ns
         self.started = self.started or msg.result == 'running'
         self.max_altitude = max(self.max_altitude, msg.altitude)
         if msg.goal_distance >= 0.0:
             if not math.isfinite(self.initial_goal_distance):
                 self.initial_goal_distance = msg.goal_distance
             self.closest_goal_distance = min(self.closest_goal_distance, msg.goal_distance)
+        if msg.mission_progress_distance >= 0.0:
+            self.max_mission_progress_distance = max(
+                self.max_mission_progress_distance,
+                msg.mission_progress_distance,
+            )
         geometric_clearance = self.course.clearance(
             msg.east,
             msg.north,
@@ -211,8 +259,10 @@ class TrialEvaluator(Node):
             return
 
         takeoff_stalled = (
-            self.started and msg.state == 'takeoff' and
-            msg.elapsed_time >= self.takeoff_timeout and self.max_altitude < 5.0
+            self.started
+            and msg.state == 'takeoff'
+            and msg.elapsed_time >= self.takeoff_timeout
+            and self.max_altitude < 5.0
         )
         if takeoff_stalled:
             self.outcome = 'stalled'
@@ -237,20 +287,67 @@ class TrialEvaluator(Node):
     def finished(self) -> bool:
         return self.outcome is not None
 
+    def startup_diagnostics(self) -> dict:
+        if self.latest is None:
+            return {
+                'stage': 'waiting_for_telemetry',
+                'telemetry_received': False,
+                'vehicle_state_received': False,
+                'attitude_ready': False,
+                'obstacles_ready': False,
+                'armed': False,
+                'offboard': False,
+                'sim_time_advanced': False,
+                'samples': 0,
+            }
+
+        msg = self.latest
+        sim_time_advanced = (
+            self._first_stamp_ns is not None
+            and self._last_stamp_ns is not None
+            and self._last_stamp_ns - self._first_stamp_ns >= 500_000_000
+        )
+        stage = startup_stage(
+            sim_time_advanced=sim_time_advanced,
+            vehicle_state_received=msg.vehicle_state_received,
+            attitude_ready=msg.attitude_ready,
+            obstacles_ready=msg.obstacles_ready,
+            mission_state=msg.state,
+            armed=msg.armed,
+            offboard=msg.offboard,
+            flight_started=self.started,
+        )
+
+        return {
+            'stage': stage,
+            'telemetry_received': True,
+            'vehicle_state_received': bool(msg.vehicle_state_received),
+            'attitude_ready': bool(msg.attitude_ready),
+            'obstacles_ready': bool(msg.obstacles_ready),
+            'armed': bool(msg.armed),
+            'offboard': bool(msg.offboard),
+            'sim_time_advanced': sim_time_advanced,
+            'samples': self.samples,
+        }
+
     def metrics(self, fallback_outcome: str) -> TrialMetrics:
         if self.latest is None:
             return TrialMetrics(outcome=fallback_outcome)
         msg = self.latest
+        startup = self.startup_diagnostics()
         initial_goal_distance = (
             self.initial_goal_distance if math.isfinite(self.initial_goal_distance) else -1.0
         )
         closest_goal_distance = (
             self.closest_goal_distance if math.isfinite(self.closest_goal_distance) else -1.0
         )
-        progress_distance = (
-            max(0.0, initial_goal_distance - closest_goal_distance)
-            if initial_goal_distance >= 0.0 and closest_goal_distance >= 0.0 else 0.0
-        )
+        progress_distance = self.max_mission_progress_distance
+        if progress_distance <= 0.0:
+            progress_distance = (
+                max(0.0, initial_goal_distance - closest_goal_distance)
+                if initial_goal_distance >= 0.0 and closest_goal_distance >= 0.0
+                else 0.0
+            )
         outcome = self.outcome or fallback_outcome
         if outcome == 'timeout' and progress_distance < self.stall_min_progress:
             outcome = 'stalled'
@@ -261,6 +358,7 @@ class TrialEvaluator(Node):
             initial_goal_distance=initial_goal_distance,
             closest_goal_distance=closest_goal_distance,
             progress_distance=progress_distance,
+            mission_remaining_distance=msg.mission_remaining_distance,
             path_length=msg.path_length,
             max_cross_track_error=msg.max_cross_track_error,
             minimum_lidar_distance=msg.minimum_lidar_distance,
@@ -271,10 +369,15 @@ class TrialEvaluator(Node):
             ),
             avoidance_activations=msg.avoidance_activations,
             repulsive_force_variation=self.force_variation,
-            fw_attitude_oscillation_deg_per_s=(
-                self.attitude_oscillation.degrees_per_second()
-            ),
+            fw_attitude_oscillation_deg_per_s=(self.attitude_oscillation.degrees_per_second()),
             samples=self.samples,
+            startup_stage=startup['stage'],
+            vehicle_state_received=startup['vehicle_state_received'],
+            attitude_ready=startup['attitude_ready'],
+            obstacles_ready=startup['obstacles_ready'],
+            armed=startup['armed'],
+            offboard=startup['offboard'],
+            sim_time_advanced=startup['sim_time_advanced'],
         )
 
 
@@ -285,8 +388,13 @@ def score_trial(
 ) -> float:
     remaining_distance = max(
         0.0,
-        metrics.closest_goal_distance
-        if metrics.closest_goal_distance >= 0.0 else metrics.goal_distance,
+        metrics.mission_remaining_distance
+        if metrics.mission_remaining_distance >= 0.0
+        else (
+            metrics.closest_goal_distance
+            if metrics.closest_goal_distance >= 0.0
+            else metrics.goal_distance
+        ),
     )
     if metrics.outcome == 'stalled':
         return 2_500_000.0 + 1_000.0 * remaining_distance

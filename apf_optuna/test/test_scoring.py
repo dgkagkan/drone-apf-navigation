@@ -4,6 +4,7 @@ from apf_optuna.evaluator import (
     AttitudeOscillationTracker,
     NON_APF_FAILURES,
     score_trial,
+    startup_stage,
     TrialMetrics,
 )
 
@@ -46,6 +47,17 @@ def test_failure_score_uses_closest_distance_to_goal():
     )
 
     assert score_trial(collision) == 1_400_000.0
+
+
+def test_multi_goal_failure_score_uses_remaining_mission_distance():
+    collision = TrialMetrics(
+        outcome='collision',
+        goal_distance=100.0,
+        closest_goal_distance=20.0,
+        mission_remaining_distance=900.0,
+    )
+
+    assert score_trial(collision) == 2_000_000.0
 
 
 def test_non_apf_failures_are_excluded_from_parameter_learning():
@@ -117,3 +129,28 @@ def test_attitude_tracker_handles_roll_angle_wraparound():
     tracker.add_sample(0.1, math.radians(-179.0), 0.0)
 
     assert tracker.degrees_per_second() == 0.0
+
+
+def test_startup_stage_reports_first_missing_readiness_signal():
+    common = {
+        'sim_time_advanced': True,
+        'vehicle_state_received': True,
+        'attitude_ready': True,
+        'obstacles_ready': True,
+        'mission_state': 'waiting_for_fcu',
+        'armed': False,
+        'offboard': False,
+        'flight_started': False,
+    }
+
+    assert startup_stage(**(common | {'vehicle_state_received': False})) == (
+        'waiting_for_vehicle_state'
+    )
+    assert startup_stage(**(common | {'obstacles_ready': False})) == 'waiting_for_obstacles'
+    assert startup_stage(**(common | {'mission_state': 'priming_offboard'})) == (
+        'waiting_for_arm_offboard'
+    )
+    assert (
+        startup_stage(**(common | {'flight_started': True, 'obstacles_ready': False}))
+        == 'flight_started'
+    )

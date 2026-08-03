@@ -67,6 +67,7 @@ public:
       [this](const ApfTelemetry::SharedPtr message) {
         std::lock_guard<std::mutex> lock(mutex_);
         avoidance_active_ = message->avoidance_active;
+        if (!message->active_mode.empty()) active_apf_mode_ = message->active_mode;
       });
     override_sub_ = create_subscription<std_msgs::msg::Bool>(
       "/navigation/manual_override", 10,
@@ -315,12 +316,14 @@ private:
     VehicleState state;
     bool manual_override = false;
     bool avoidance_active = false;
+    std::string active_apf_mode;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       goal_handle = active_goal_;
       state = state_;
       manual_override = manual_override_;
       avoidance_active = avoidance_active_;
+      active_apf_mode = active_apf_mode_;
     }
     if (!goal_handle || !goal_handle->is_active()) {
       processArrivalHold(state);
@@ -346,6 +349,7 @@ private:
       feedback->phase = "paused by manual controller";
       feedback->remaining_distance_m = distance;
       feedback->avoidance_active = avoidance_active;
+      feedback->apf_mode = active_apf_mode;
       feedback->position_enu = state.position_enu;
       feedback->velocity_enu = state.velocity_enu;
       feedback->speed_m_s = std::sqrt(
@@ -406,6 +410,7 @@ private:
     feedback->phase = goal->use_fixed_wing ? "fixed-wing cruise" : "multicopter navigation";
     feedback->remaining_distance_m = distance;
     feedback->avoidance_active = avoidance_active;
+    feedback->apf_mode = active_apf_mode;
     feedback->position_enu = state.position_enu;
     feedback->velocity_enu = state.velocity_enu;
     feedback->speed_m_s = std::sqrt(
@@ -433,6 +438,7 @@ private:
   bool have_state_ {false};
   bool manual_override_ {false};
   bool avoidance_active_ {false};
+  std::string active_apf_mode_ {"unknown"};
   bool requested_transition_ {false};
   bool arrival_hold_pending_ {false};
   bool arrival_hold_active_ {false};

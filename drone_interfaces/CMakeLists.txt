@@ -13,6 +13,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MotionCommand.msg"
   "msg/VehicleState.msg"
   "srv/Arm.srv"
+  "srv/SetApfMode.srv"
   "srv/ValidateGoal.srv"
   "action/Land.action"
   "action/NavigateTo.action"

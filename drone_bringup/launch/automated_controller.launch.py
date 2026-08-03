@@ -3,19 +3,29 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
     visualization_enabled = LaunchConfiguration("visualization_enabled")
+    transform_enabled = LaunchConfiguration("transform_enabled")
     config_file = LaunchConfiguration("config_file")
     argument_defaults = {
+        "mission_profile": "single",
         "goal_x": "700.0",
         "goal_y": "0.0",
         "cruise_altitude": "15.0",
+        "goal_2_x": "0.0",
+        "goal_2_y": "0.0",
+        "goal_2_altitude": "15.0",
+        "goal_3_x": "750.0",
+        "goal_3_y": "15.0",
+        "goal_3_altitude": "15.0",
         "goal_approach_distance": "30.0",
+        "intermediate_goal_tolerance": "25.0",
         "goal_tolerance": "5.0",
         "landing_handover_altitude": "3.0",
         "landing_altitude_tolerance": "0.5",
@@ -52,12 +62,28 @@ def generate_launch_description():
     default_config = PathJoinSubstitution([
         FindPackageShare("drone_control"), "config", "controller.yaml"
     ])
+    robot_description = ParameterValue(
+        Command([
+            "xacro ",
+            PathJoinSubstitution([
+                FindPackageShare("drone_description"),
+                "urdf",
+                "drone.urdf.xacro",
+            ]),
+        ]),
+        value_type=str,
+    )
     launch_arguments = [
         DeclareLaunchArgument(name, default_value=default)
         for name, default in argument_defaults.items()
     ]
     launch_arguments.extend([
         DeclareLaunchArgument("visualization_enabled", default_value="false"),
+        DeclareLaunchArgument(
+            "transform_enabled",
+            default_value="true",
+            description="Publish map-to-base and vehicle sensor transforms.",
+        ),
         DeclareLaunchArgument("config_file", default_value=default_config),
     ])
     value = {name: LaunchConfiguration(name) for name in argument_defaults}
@@ -66,10 +92,18 @@ def generate_launch_description():
     mission_parameters = {
         name: value[name]
         for name in (
+            "mission_profile",
             "goal_x",
             "goal_y",
             "cruise_altitude",
+            "goal_2_x",
+            "goal_2_y",
+            "goal_2_altitude",
+            "goal_3_x",
+            "goal_3_y",
+            "goal_3_altitude",
             "goal_approach_distance",
+            "intermediate_goal_tolerance",
             "goal_tolerance",
             "landing_handover_altitude",
             "landing_altitude_tolerance",
@@ -113,6 +147,29 @@ def generate_launch_description():
     apf_parameters["obstacle_timeout_s"] = value["lidar_timeout"]
 
     nodes = [
+        Node(
+            package="robot_state_publisher",
+            executable="robot_state_publisher",
+            name="robot_state_publisher",
+            output="screen",
+            condition=IfCondition(transform_enabled),
+            parameters=[{
+                "robot_description": robot_description,
+                "use_sim_time": True,
+            }],
+            remappings=[("joint_states", "/gimbal/joint_state")],
+        ),
+        Node(
+            package="drone_control",
+            executable="vehicle_tf_broadcaster_node",
+            name="vehicle_tf_broadcaster",
+            output="screen",
+            condition=IfCondition(transform_enabled),
+            parameters=[{
+                "use_sim_time": True,
+                "use_ground_truth": True,
+            }],
+        ),
         Node(
             package="drone_control",
             executable="px4_gateway_node",

@@ -19,6 +19,28 @@ def generate_launch_description():
         FindPackageShare("drone_control"), "config", "controller.yaml"
     ])
     shared_parameters = [config_file, {"use_sim_time": True}]
+    apf_mode_parameters = [
+        config_file,
+        PathJoinSubstitution([
+            FindPackageShare("drone_navigation"),
+            "config",
+            "apf_modes",
+            "stable.yaml",
+        ]),
+        PathJoinSubstitution([
+            FindPackageShare("drone_navigation"),
+            "config",
+            "apf_modes",
+            "normal.yaml",
+        ]),
+        PathJoinSubstitution([
+            FindPackageShare("drone_navigation"),
+            "config",
+            "apf_modes",
+            "sport.yaml",
+        ]),
+        {"use_sim_time": True},
+    ]
     navigation_client_command = [
         TextSubstitution(
             text='ros2 run drone_navigation navigation_client_node '
@@ -98,7 +120,7 @@ def generate_launch_description():
             executable="apf_safety_node",
             name="apf_safety",
             output="screen",
-            parameters=shared_parameters,
+            parameters=apf_mode_parameters,
         ),
         Node(
             package="drone_navigation",

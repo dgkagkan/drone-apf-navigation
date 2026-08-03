@@ -13,6 +13,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(visualization_msgs REQUIRED)
@@ -33,7 +34,7 @@ add_executable(apf_safety_node src/apf_safety_node.cpp)
 target_compile_features(apf_safety_node PRIVATE cxx_std_17)
 target_link_libraries(apf_safety_node apf_solver)
 ament_target_dependencies(apf_safety_node
-  drone_interfaces rclcpp sensor_msgs)
+  drone_interfaces rclcpp sensor_msgs std_srvs)
 
 add_executable(apf_visualizer_node src/apf_visualizer_node.cpp)
 target_compile_features(apf_visualizer_node PRIVATE cxx_std_17)
@@ -63,7 +64,7 @@ ament_target_dependencies(navigation_server_node
 add_executable(navigation_client_node src/navigation_client_node.cpp)
 target_compile_features(navigation_client_node PRIVATE cxx_std_17)
 ament_target_dependencies(navigation_client_node
-  drone_interfaces rclcpp rclcpp_action)
+  drone_interfaces rclcpp rclcpp_action std_srvs)
 
 install(TARGETS
   apf_solver
@@ -80,6 +81,7 @@ install(TARGETS
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
+install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config)
 
 ament_export_targets(export_apf_solver HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)

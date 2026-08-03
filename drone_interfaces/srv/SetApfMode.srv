@@ -1,0 +1,5 @@
+string mode
+---
+bool accepted
+string active_mode
+string message

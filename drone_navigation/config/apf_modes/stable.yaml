@@ -1,0 +1,22 @@
+apf_safety:
+  ros__parameters:
+    # TODO: Replace this profile when a consistently stable Optuna result is selected.
+    profiles:
+      stable:
+        obstacle_influence_radius: 77.96063615194443
+        fw_avoid_trigger_dist: 73.5424773407324
+        mc_trail_half_width: 2.5
+        fw_trail_half_width: 11.66155241746725
+        lidar_vertical_half_fov_deg: 15.0
+        mc_attractive_gain: 1.0
+        fw_attractive_gain: 0.510689137310558
+        mc_repulsive_gain: 2.5
+        fw_repulsive_gain: 10.414042935641696
+        repulsive_distance_power: 1.054655071200557
+        fw_max_avoid_angle_deg: 16.805443865619306
+        fw_max_avoid_pitch_deg: 13.988346309184921
+        vertical_escape_pitch_gain: 1.16097076371247
+        apf_clearance_radius: 1.5
+        mc_speed: 4.0
+        mc_climb_speed: 2.0
+        avoidance_clear_hold_time: 2.0

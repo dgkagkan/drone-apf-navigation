@@ -9,6 +9,7 @@ IGNORED_MODELS = {
     'goal_marker',
     'ground_plane',
     'start_marker',
+    'turn_marker',
 }
 
 

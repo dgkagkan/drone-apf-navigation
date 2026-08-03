@@ -1,0 +1,22 @@
+apf_safety:
+  ros__parameters:
+    # Optimized values from successful three-goal Optuna trial 1154.
+    profiles:
+      sport:
+        obstacle_influence_radius: 75.63897058213283
+        fw_avoid_trigger_dist: 70.13419244776944
+        mc_trail_half_width: 2.5
+        fw_trail_half_width: 12.034142094990367
+        lidar_vertical_half_fov_deg: 15.0
+        mc_attractive_gain: 1.0
+        fw_attractive_gain: 3.7789210198680276
+        mc_repulsive_gain: 2.5
+        fw_repulsive_gain: 75.44718734623662
+        repulsive_distance_power: 1.3863459177448294
+        fw_max_avoid_angle_deg: 40.332707465235146
+        fw_max_avoid_pitch_deg: 10.31948713434895
+        vertical_escape_pitch_gain: 1.0393482819186732
+        apf_clearance_radius: 1.5
+        mc_speed: 4.0
+        mc_climb_speed: 2.0
+        avoidance_clear_hold_time: 2.0

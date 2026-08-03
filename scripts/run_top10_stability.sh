@@ -17,12 +17,26 @@ RUN_ID="${APF_RUN_ID:-top_stability_$(date +%Y%m%d_%H%M%S)}"
 BASE_DOMAIN_ID="${APF_BASE_DOMAIN_ID:-40}"
 BASE_AGENT_PORT="${APF_BASE_AGENT_PORT:-9000}"
 STARTUP_TIMEOUT="${APF_STARTUP_TIMEOUT:-150}"
+STARTUP_ATTEMPTS="${APF_STARTUP_ATTEMPTS:-3}"
+STARTUP_RETRY_DELAY="${APF_STARTUP_RETRY_DELAY:-8}"
+RESET_DELAY="${APF_RESET_DELAY:-6}"
 WORKER_START_STAGGER="${APF_WORKER_START_STAGGER:-12}"
 STABILITY_WEIGHT="${APF_STABILITY_WEIGHT:-1.0}"
+MISSION_PROFILE="${APF_MISSION_PROFILE:-single}"
 GOAL_X="${APF_GOAL_X:-700.0}"
+GOAL_Y="${APF_GOAL_Y:-0.0}"
+CRUISE_ALTITUDE="${APF_CRUISE_ALTITUDE:-15.0}"
+GOAL_2_X="${APF_GOAL_2_X:-0.0}"
+GOAL_2_Y="${APF_GOAL_2_Y:-0.0}"
+GOAL_2_ALTITUDE="${APF_GOAL_2_ALTITUDE:-15.0}"
+GOAL_3_X="${APF_GOAL_3_X:-750.0}"
+GOAL_3_Y="${APF_GOAL_3_Y:-15.0}"
+GOAL_3_ALTITUDE="${APF_GOAL_3_ALTITUDE:-15.0}"
+INTERMEDIATE_GOAL_TOLERANCE="${APF_INTERMEDIATE_GOAL_TOLERANCE:-25.0}"
+TRIAL_TIMEOUT="${APF_TRIAL_TIMEOUT:-420}"
 PREPARATION_SUMMARY="$OUTPUT_DIRECTORY/benchmark_plan.json"
 
-for value_name in TOP_COUNT REPETITIONS WORKER_COUNT; do
+for value_name in TOP_COUNT REPETITIONS WORKER_COUNT STARTUP_ATTEMPTS; do
     value="${!value_name}"
     if ! [[ "$value" =~ ^[1-9][0-9]*$ ]]; then
         echo "$value_name must be a positive integer." >&2
@@ -93,8 +107,22 @@ start_worker() {
         --base-domain-id "$BASE_DOMAIN_ID" \
         --base-agent-port "$BASE_AGENT_PORT" \
         --run-id "$RUN_ID" \
+        --mission-profile "$MISSION_PROFILE" \
         --goal-x "$GOAL_X" \
+        --goal-y "$GOAL_Y" \
+        --cruise-altitude "$CRUISE_ALTITUDE" \
+        --goal-2-x "$GOAL_2_X" \
+        --goal-2-y "$GOAL_2_Y" \
+        --goal-2-altitude "$GOAL_2_ALTITUDE" \
+        --goal-3-x "$GOAL_3_X" \
+        --goal-3-y "$GOAL_3_Y" \
+        --goal-3-altitude "$GOAL_3_ALTITUDE" \
+        --intermediate-goal-tolerance "$INTERMEDIATE_GOAL_TOLERANCE" \
         --startup-timeout "$STARTUP_TIMEOUT" \
+        --startup-attempts "$STARTUP_ATTEMPTS" \
+        --startup-retry-delay "$STARTUP_RETRY_DELAY" \
+        --reset-delay "$RESET_DELAY" \
+        --trial-timeout "$TRIAL_TIMEOUT" \
         --stability-weight "$STABILITY_WEIGHT" \
         --headless \
         >"$worker_log" 2>&1 &
@@ -108,6 +136,8 @@ batch=0
 
 echo "Starting repeated stability benchmark."
 echo "Candidates: $TOP_COUNT, valid repetitions per candidate: $REPETITIONS"
+echo "Mission profile: $MISSION_PROFILE"
+echo "Startup recovery: $STARTUP_ATTEMPTS attempts per repetition"
 echo "Study: $TARGET_STUDY, results: $OUTPUT_DIRECTORY"
 
 while true; do
@@ -156,13 +186,11 @@ while true; do
             BEGIN {stored = 0; valid = 0; success = 0; retry = 0}
             {
                 stored++
-                if ($0 == "controller_exit" || $0 == "no_telemetry" ||
-                    $0 == "simulator_exit" || $0 == "stalled" ||
-                    $0 == "startup_timeout" || $0 == "timeout") {
-                    retry++
-                } else {
+                if ($0 == "success" || $0 == "collision") {
                     valid++
                     if ($0 == "success") success++
+                } else {
+                    retry++
                 }
             }
             END {

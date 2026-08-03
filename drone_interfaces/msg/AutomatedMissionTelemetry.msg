@@ -7,9 +7,16 @@ bool armed
 bool offboard
 bool fixed_wing
 bool avoidance_active
+bool vehicle_state_received
+bool attitude_ready
+bool obstacles_ready
 
 float64 elapsed_time
 float64 goal_distance
+float64 mission_progress_distance
+float64 mission_remaining_distance
+uint32 active_goal_index
+uint32 goal_count
 float64 east
 float64 north
 float64 altitude

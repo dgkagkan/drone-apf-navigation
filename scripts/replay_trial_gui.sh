@@ -66,6 +66,19 @@ set -u
 mapfile -t controller_arguments < <(
     jq -r '.parameters | to_entries[] | "\(.key):=\(.value)"' "$RESULT_FILE"
 )
+mission_profile="$(jq -r '.mission.profile // "single"' "$RESULT_FILE")"
+stored_goal_x="$(jq -r '.mission.goals[0].x // 700.0' "$RESULT_FILE")"
+stored_goal_y="$(jq -r '.mission.goals[0].y // 0.0' "$RESULT_FILE")"
+stored_goal_altitude="$(jq -r '.mission.goals[0].altitude // 15.0' "$RESULT_FILE")"
+stored_goal_2_x="$(jq -r '.mission.goals[1].x // 0.0' "$RESULT_FILE")"
+stored_goal_2_y="$(jq -r '.mission.goals[1].y // 0.0' "$RESULT_FILE")"
+stored_goal_2_altitude="$(jq -r '.mission.goals[1].altitude // 15.0' "$RESULT_FILE")"
+stored_goal_3_x="$(jq -r '.mission.goals[2].x // 750.0' "$RESULT_FILE")"
+stored_goal_3_y="$(jq -r '.mission.goals[2].y // 15.0' "$RESULT_FILE")"
+stored_goal_3_altitude="$(jq -r '.mission.goals[2].altitude // 15.0' "$RESULT_FILE")"
+stored_intermediate_tolerance="$(
+    jq -r '.mission.intermediate_goal_tolerance // 25.0' "$RESULT_FILE"
+)"
 
 export ROS_DOMAIN_ID="$REPLAY_DOMAIN_ID"
 export GZ_PARTITION="apf_replay_${REPLAY_WORKER_ID}_trial_${TRIAL_NUMBER}_$$"
@@ -226,6 +239,7 @@ echo "Replaying trial $TRIAL_NUMBER from $RESULT_FILE"
 echo "Gazebo/PX4 log: $replay_log"
 echo "Isolation: ROS domain $ROS_DOMAIN_ID, PX4 instance $REPLAY_WORKER_ID, agent $REPLAY_AGENT_PORT"
 echo "RViz APF overlays: $REPLAY_USE_RVIZ"
+echo "Mission profile: $mission_profile"
 echo "Press Ctrl+C to stop."
 
 setsid ros2 launch drone_bringup sim.launch.py \
@@ -255,9 +269,18 @@ sleep "${APF_REPLAY_SETTLE_DELAY:-3}"
 
 setsid ros2 launch drone_bringup automated_controller.launch.py \
     target_system:="$target_system" \
-    goal_x:="${APF_REPLAY_GOAL_X:-700.0}" \
-    goal_y:="${APF_REPLAY_GOAL_Y:-0.0}" \
-    cruise_altitude:="${APF_REPLAY_ALTITUDE:-15.0}" \
+    mission_profile:="$mission_profile" \
+    goal_x:="${APF_REPLAY_GOAL_X:-$stored_goal_x}" \
+    goal_y:="${APF_REPLAY_GOAL_Y:-$stored_goal_y}" \
+    cruise_altitude:="${APF_REPLAY_ALTITUDE:-$stored_goal_altitude}" \
+    goal_2_x:="$stored_goal_2_x" \
+    goal_2_y:="$stored_goal_2_y" \
+    goal_2_altitude:="$stored_goal_2_altitude" \
+    goal_3_x:="$stored_goal_3_x" \
+    goal_3_y:="$stored_goal_3_y" \
+    goal_3_altitude:="$stored_goal_3_altitude" \
+    intermediate_goal_tolerance:="$stored_intermediate_tolerance" \
+    transform_enabled:=false \
     visualization_enabled:="$REPLAY_USE_RVIZ" \
     "${controller_arguments[@]}" &
 controller_pid="$!"

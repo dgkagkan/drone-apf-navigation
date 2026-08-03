@@ -7,7 +7,7 @@ import statistics
 
 import optuna
 
-from .evaluator import NON_APF_FAILURES
+from .evaluator import STABILITY_BENCHMARK_OUTCOMES
 from .optimizer import configure_sqlite_database, create_optuna_storage
 
 
@@ -26,34 +26,26 @@ def _standard_deviation(values: list[float]) -> float | None:
 
 
 def summarize_candidate(source_trial: int, records: list[dict]) -> dict:
-    infrastructure_failures = [
+    excluded_records = [
         record
         for record in records
-        if record['metrics']['outcome'] in NON_APF_FAILURES
+        if record['metrics']['outcome'] not in STABILITY_BENCHMARK_OUTCOMES
     ]
     valid_records = [
         record
         for record in records
-        if record['metrics']['outcome'] not in NON_APF_FAILURES
+        if record['metrics']['outcome'] in STABILITY_BENCHMARK_OUTCOMES
     ]
-    successful = [
-        record for record in valid_records if record['metrics']['outcome'] == 'success'
-    ]
+    successful = [record for record in valid_records if record['metrics']['outcome'] == 'success']
     scores = [float(record['score']) for record in valid_records]
     success_scores = [float(record['score']) for record in successful]
     oscillations = [
-        float(record['metrics']['fw_attitude_oscillation_deg_per_s'])
-        for record in successful
+        float(record['metrics']['fw_attitude_oscillation_deg_per_s']) for record in successful
     ]
     elapsed_times = [float(record['metrics']['elapsed_time']) for record in successful]
-    clearances = [
-        float(record['metrics']['minimum_geometric_clearance'])
-        for record in successful
-    ]
+    clearances = [float(record['metrics']['minimum_geometric_clearance']) for record in successful]
     outcomes = Counter(record['metrics']['outcome'] for record in valid_records)
-    infrastructure_outcomes = Counter(
-        record['metrics']['outcome'] for record in infrastructure_failures
-    )
+    excluded_outcomes = Counter(record['metrics']['outcome'] for record in excluded_records)
     attempts = len(valid_records)
 
     return {
@@ -62,7 +54,7 @@ def summarize_candidate(source_trial: int, records: list[dict]) -> dict:
         'attempts': attempts,
         'successes': len(successful),
         'success_rate_percent': 100.0 * len(successful) / attempts if attempts else 0.0,
-        'infrastructure_failures': len(infrastructure_failures),
+        'excluded_runs': len(excluded_records),
         'mean_score': _mean(scores),
         'median_score': _median(scores),
         'score_standard_deviation': _standard_deviation(scores),
@@ -71,7 +63,7 @@ def summarize_candidate(source_trial: int, records: list[dict]) -> dict:
         'mean_fw_attitude_oscillation_deg_per_s': _mean(oscillations),
         'mean_minimum_geometric_clearance': _mean(clearances),
         'outcomes': dict(sorted(outcomes.items())),
-        'infrastructure_outcomes': dict(sorted(infrastructure_outcomes.items())),
+        'excluded_outcomes': dict(sorted(excluded_outcomes.items())),
     }
 
 
@@ -134,7 +126,7 @@ def write_csv(path: Path, summaries: list[dict]) -> None:
         'attempts',
         'successes',
         'success_rate_percent',
-        'infrastructure_failures',
+        'excluded_runs',
         'mean_score',
         'median_score',
         'score_standard_deviation',
@@ -143,7 +135,7 @@ def write_csv(path: Path, summaries: list[dict]) -> None:
         'mean_fw_attitude_oscillation_deg_per_s',
         'mean_minimum_geometric_clearance',
         'outcomes',
-        'infrastructure_outcomes',
+        'excluded_outcomes',
     ]
     with path.open('w', encoding='utf-8', newline='') as stream:
         writer = csv.DictWriter(stream, fieldnames=fieldnames)
@@ -151,9 +143,7 @@ def write_csv(path: Path, summaries: list[dict]) -> None:
         for summary in summaries:
             row = dict(summary)
             row['outcomes'] = json.dumps(row['outcomes'], sort_keys=True)
-            row['infrastructure_outcomes'] = json.dumps(
-                row['infrastructure_outcomes'], sort_keys=True
-            )
+            row['excluded_outcomes'] = json.dumps(row['excluded_outcomes'], sort_keys=True)
             writer.writerow(row)
 
 
@@ -183,14 +173,12 @@ def main() -> None:
         raise RuntimeError('The benchmark does not have any completed result files')
 
     summaries = rank_candidates(records)
-    infrastructure_failures = sum(
-        summary['infrastructure_failures'] for summary in summaries
-    )
+    excluded_runs = sum(summary['excluded_runs'] for summary in summaries)
     report = {
         'study_name': args.study_name,
         'stored_results': len(records),
-        'valid_completed_runs': len(records) - infrastructure_failures,
-        'infrastructure_failures': infrastructure_failures,
+        'valid_completed_runs': len(records) - excluded_runs,
+        'excluded_runs': excluded_runs,
         'pending_runs': pending,
         'ranking': summaries,
     }
@@ -202,18 +190,18 @@ def main() -> None:
     )
     write_csv(csv_path, summaries)
 
-    print('Rank  Trial  Success    Infra    Mean score    Score std    Oscillation')
+    print('Rank  Trial  Success  Excluded    Mean score    Score std    Oscillation')
     for summary in summaries:
         oscillation = summary['mean_fw_attitude_oscillation_deg_per_s']
         oscillation_text = 'n/a' if oscillation is None else f'{oscillation:.2f}'
         print(
-            f"{summary['rank']:>4}  {summary['source_trial']:>5}  "
-            f"{summary['successes']:>2}/{summary['attempts']:<2} "
-            f"({summary['success_rate_percent']:>5.1f}%)  "
-            f"{summary['infrastructure_failures']:>5}  "
-            f"{summary['mean_score'] if summary['mean_score'] is not None else float('nan'):>12.2f}  "
-            f"{summary['score_standard_deviation'] if summary['score_standard_deviation'] is not None else float('nan'):>11.2f}  "
-            f"{oscillation_text:>11}"
+            f'{summary["rank"]:>4}  {summary["source_trial"]:>5}  '
+            f'{summary["successes"]:>2}/{summary["attempts"]:<2} '
+            f'({summary["success_rate_percent"]:>5.1f}%)  '
+            f'{summary["excluded_runs"]:>5}  '
+            f'{summary["mean_score"] if summary["mean_score"] is not None else float("nan"):>12.2f}  '
+            f'{summary["score_standard_deviation"] if summary["score_standard_deviation"] is not None else float("nan"):>11.2f}  '
+            f'{oscillation_text:>11}'
         )
     print(f'Reports: {csv_path} and {summary_path}')
 

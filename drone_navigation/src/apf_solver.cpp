@@ -12,7 +12,7 @@ namespace
 
 constexpr std::size_t kYawBins = 31;
 constexpr std::size_t kPitchBins = 17;
-constexpr double kFrontSectorHalfAngleRad = 0.7853981634;
+constexpr double kFrontSectorHalfAngleRad = 1.0471975512;
 
 double norm(const Vec3 & value)
 {

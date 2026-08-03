@@ -4,7 +4,7 @@ from pathlib import Path
 
 import optuna
 
-from .evaluator import NON_APF_FAILURES
+from .evaluator import STABILITY_BENCHMARK_OUTCOMES
 from .optimizer import configure_sqlite_database, create_optuna_storage
 from .seed_study import successful_unique_trials
 
@@ -16,11 +16,11 @@ def is_valid_repetition(trial: optuna.trial.FrozenTrial, result_path: Path) -> b
     }:
         return True
     if not result_path.is_file():
-        return trial.state == optuna.trial.TrialState.COMPLETE
+        return False
 
     result = json.loads(result_path.read_text(encoding='utf-8'))
     outcome = result.get('metrics', {}).get('outcome')
-    return outcome not in NON_APF_FAILURES
+    return outcome in STABILITY_BENCHMARK_OUTCOMES
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -71,11 +71,13 @@ def main() -> None:
         result_path = args.target_directory / f'trial_{trial.number:05d}' / 'result.json'
         if not is_valid_repetition(trial, result_path):
             continue
-        existing_repetitions.add((
-            trial.user_attrs.get('seed_source_study'),
-            trial.user_attrs.get('seed_source_trial'),
-            trial.user_attrs.get('seed_repeat_index'),
-        ))
+        existing_repetitions.add(
+            (
+                trial.user_attrs.get('seed_source_study'),
+                trial.user_attrs.get('seed_source_trial'),
+                trial.user_attrs.get('seed_repeat_index'),
+            )
+        )
     queued = 0
     for source_trial in selected:
         for repeat_index in range(args.repetitions):
@@ -106,10 +108,7 @@ def main() -> None:
         'repetitions': args.repetitions,
         'queued': queued,
         'waiting_total': waiting_total,
-        'selected_trials': [
-            {'trial': trial.number, 'score': trial.value}
-            for trial in selected
-        ],
+        'selected_trials': [{'trial': trial.number, 'score': trial.value} for trial in selected],
     }
     args.summary_file.parent.mkdir(parents=True, exist_ok=True)
     args.summary_file.write_text(

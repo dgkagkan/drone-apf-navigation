@@ -4,7 +4,9 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <drone_interfaces/msg/apf_telemetry.hpp>
 #include <drone_interfaces/msg/automated_mission_telemetry.hpp>
@@ -28,12 +30,31 @@ public:
   AutomatedMissionNode()
   : Node("automated_mission")
   {
-    goal_x_ = declare_parameter<double>("goal_x", 700.0);
-    goal_y_ = declare_parameter<double>("goal_y", 0.0);
+    const double goal_x = declare_parameter<double>("goal_x", 700.0);
+    const double goal_y = declare_parameter<double>("goal_y", 0.0);
     cruise_altitude_ = std::max(
       2.0, declare_parameter<double>("cruise_altitude", 15.0));
+    mission_profile_ = declare_parameter<std::string>("mission_profile", "single");
+    const MissionGoal second_goal{
+      declare_parameter<double>("goal_2_x", 0.0),
+      declare_parameter<double>("goal_2_y", 0.0),
+      std::max(2.0, declare_parameter<double>("goal_2_altitude", 15.0))};
+    const MissionGoal third_goal{
+      declare_parameter<double>("goal_3_x", 750.0),
+      declare_parameter<double>("goal_3_y", 15.0),
+      std::max(2.0, declare_parameter<double>("goal_3_altitude", 15.0))};
+    goals_.push_back({goal_x, goal_y, cruise_altitude_});
+    if (mission_profile_ == "three_goal") {
+      goals_.push_back(second_goal);
+      goals_.push_back(third_goal);
+    } else if (mission_profile_ != "single") {
+      throw std::invalid_argument("mission_profile must be 'single' or 'three_goal'");
+    }
     goal_approach_distance_ = std::max(
       10.0, declare_parameter<double>("goal_approach_distance", 30.0));
+    intermediate_goal_tolerance_ = std::max(
+      5.0,
+      declare_parameter<double>("intermediate_goal_tolerance", 25.0));
     goal_tolerance_ = std::clamp(
       declare_parameter<double>("goal_tolerance", 5.0),
       1.0, goal_approach_distance_ - 1.0);
@@ -80,12 +101,24 @@ public:
       std::chrono::milliseconds(20), std::bind(&AutomatedMissionNode::onTimer, this));
 
     RCLCPP_INFO(
-      get_logger(),
-      "Automated mission ready: goal ENU=(%.1f, %.1f), altitude=%.1fm, FW=%.1fm/s",
-      goal_x_, goal_y_, cruise_altitude_, fw_speed_cruise_);
+      get_logger(), "Automated mission ready: %zu goal(s), profile=%s, FW=%.1fm/s",
+      goals_.size(), mission_profile_.c_str(), fw_speed_cruise_);
+    for (std::size_t index = 0; index < goals_.size(); ++index) {
+      const auto & goal = goals_[index];
+      RCLCPP_INFO(
+        get_logger(), "  goal %zu/%zu ENU=(%.1f, %.1f, %.1f)",
+        index + 1, goals_.size(), goal.x, goal.y, goal.altitude);
+    }
   }
 
 private:
+  struct MissionGoal
+  {
+    double x;
+    double y;
+    double altitude;
+  };
+
   enum class MissionState
   {
     WAITING_FOR_FCU,
@@ -114,13 +147,14 @@ private:
     updateAttitude();
 
     if (!metrics_tracking_) return;
-    const double route_x = goal_x_ - mission_start_x_;
-    const double route_y = goal_y_ - mission_start_y_;
+    const auto & goal = currentGoal();
+    const double route_x = goal.x - leg_start_x_;
+    const double route_y = goal.y - leg_start_y_;
     const double route_length = std::hypot(route_x, route_y);
     if (route_length > 1e-3) {
       const double cross_track = std::fabs(
-        route_x * (state_.position_enu.y - mission_start_y_) -
-        route_y * (state_.position_enu.x - mission_start_x_)) / route_length;
+        route_x * (state_.position_enu.y - leg_start_y_) -
+        route_y * (state_.position_enu.x - leg_start_x_)) / route_length;
       max_cross_track_error_ = std::max(max_cross_track_error_, cross_track);
     }
   }
@@ -182,14 +216,16 @@ private:
 
   double distanceToGoal() const
   {
+    const auto & goal = currentGoal();
     return std::hypot(
-      goal_x_ - state_.position_enu.x, goal_y_ - state_.position_enu.y);
+      goal.x - state_.position_enu.x, goal.y - state_.position_enu.y);
   }
 
   std::pair<double, double> goalDirection() const
   {
-    const double dx = goal_x_ - state_.position_enu.x;
-    const double dy = goal_y_ - state_.position_enu.y;
+    const auto & goal = currentGoal();
+    const double dx = goal.x - state_.position_enu.x;
+    const double dy = goal.y - state_.position_enu.y;
     const double distance = std::hypot(dx, dy);
     if (distance < 1e-3) return {0.0, 0.0};
     return {dx / distance, dy / distance};
@@ -208,8 +244,58 @@ private:
     command.velocity_enu.y = speed * direction_y;
     command.velocity_enu.z = vertical_speed;
     command.hold_altitude = hold_altitude;
-    command.target_altitude_m = cruise_altitude_;
+    command.target_altitude_m = currentGoal().altitude;
     intent_pub_->publish(command);
+  }
+
+  const MissionGoal & currentGoal() const
+  {
+    return goals_[active_goal_index_];
+  }
+
+  bool finalGoalActive() const
+  {
+    return active_goal_index_ + 1 == goals_.size();
+  }
+
+  void initializeRouteMetrics()
+  {
+    leg_start_x_ = state_.position_enu.x;
+    leg_start_y_ = state_.position_enu.y;
+    active_goal_index_ = 0;
+    completed_route_distance_ = 0.0;
+    total_route_distance_ = std::hypot(
+      goals_.front().x - leg_start_x_, goals_.front().y - leg_start_y_);
+    for (std::size_t index = 1; index < goals_.size(); ++index) {
+      total_route_distance_ += std::hypot(
+        goals_[index].x - goals_[index - 1].x,
+        goals_[index].y - goals_[index - 1].y);
+    }
+    current_leg_nominal_length_ = std::hypot(
+      goals_.front().x - leg_start_x_, goals_.front().y - leg_start_y_);
+  }
+
+  void advanceGoal()
+  {
+    completed_route_distance_ += current_leg_nominal_length_;
+    const auto previous_goal = currentGoal();
+    ++active_goal_index_;
+    leg_start_x_ = previous_goal.x;
+    leg_start_y_ = previous_goal.y;
+    const auto & next_goal = currentGoal();
+    current_leg_nominal_length_ = std::hypot(
+      next_goal.x - previous_goal.x, next_goal.y - previous_goal.y);
+    RCLCPP_INFO(
+      get_logger(), "[goal %zu/%zu reached] continuing in FW to (%.1f, %.1f, %.1f)",
+      active_goal_index_, goals_.size(), next_goal.x, next_goal.y, next_goal.altitude);
+  }
+
+  double missionProgressDistance() const
+  {
+    const double leg_progress = std::clamp(
+      current_leg_nominal_length_ - distanceToGoal(), 0.0, current_leg_nominal_length_);
+    return std::clamp(
+      completed_route_distance_ + leg_progress, 0.0, total_route_distance_);
   }
 
   void publishInactiveIntent()
@@ -264,8 +350,18 @@ private:
     message.fixed_wing = have_state_ &&
       state_.vehicle_mode == VehicleState::MODE_FIXED_WING;
     message.avoidance_active = avoidance_active_;
+    message.vehicle_state_received = have_state_;
+    message.attitude_ready = have_state_ && state_.attitude_valid;
+    message.obstacles_ready = !avoidance_enabled_ || obstaclesFresh();
     message.elapsed_time = metrics_tracking_ ? (now() - mission_started_).seconds() : 0.0;
     message.goal_distance = have_state_ ? distanceToGoal() : -1.0;
+    const double mission_progress = have_state_ && metrics_tracking_ ?
+      missionProgressDistance() : 0.0;
+    message.mission_progress_distance = mission_progress;
+    message.mission_remaining_distance = metrics_tracking_ ?
+      std::max(0.0, total_route_distance_ - mission_progress) : -1.0;
+    message.active_goal_index = static_cast<uint32_t>(active_goal_index_);
+    message.goal_count = static_cast<uint32_t>(goals_.size());
     message.east = state_.position_enu.x;
     message.north = state_.position_enu.y;
     message.altitude = state_.position_enu.z;
@@ -300,6 +396,13 @@ private:
           state_started_ = stamp;
           mission_state_ = MissionState::PRIMING_OFFBOARD;
           RCLCPP_INFO(get_logger(), "[FCU ready] priming Offboard setpoints");
+        } else {
+          RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 5000,
+            "[startup waiting] vehicle_state=%s attitude=%s obstacles=%s",
+            have_state_ ? "ready" : "missing",
+            have_state_ && state_.attitude_valid ? "ready" : "missing",
+            !avoidance_enabled_ || obstaclesFresh() ? "ready" : "missing");
         }
         break;
 
@@ -308,22 +411,31 @@ private:
         if ((stamp - state_started_).seconds() >= auto_start_delay_ && requestDue(1.0)) {
           requestFlight(FlightRequest::ARM_OFFBOARD);
         }
+        if (!state_.armed || !state_.offboard) {
+          RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 5000,
+            "[startup waiting] armed=%s offboard=%s",
+            state_.armed ? "ready" : "missing",
+            state_.offboard ? "ready" : "missing");
+        }
         if (state_.armed && state_.offboard) {
-          mission_start_x_ = state_.position_enu.x;
-          mission_start_y_ = state_.position_enu.y;
+          initializeRouteMetrics();
           mission_started_ = stamp;
           metrics_tracking_ = true;
           mission_result_ = "running";
           mission_state_ = MissionState::TAKEOFF;
-          RCLCPP_INFO(get_logger(), "[armed + offboard] MC takeoff to %.1fm", cruise_altitude_);
+          RCLCPP_INFO(
+            get_logger(), "[armed + offboard] MC takeoff to %.1fm",
+            currentGoal().altitude);
         }
         break;
 
       case MissionState::TAKEOFF: {
         const double climb = std::clamp(
-          0.8 * (cruise_altitude_ - state_.position_enu.z), 0.0, takeoff_climb_speed_);
+          0.8 * (currentGoal().altitude - state_.position_enu.z),
+          0.0, takeoff_climb_speed_);
         publishIntent(MotionCommand::MODE_MULTICOPTER, 0.0, climb, true);
-        if (state_.position_enu.z >= cruise_altitude_ - 1.0) {
+        if (state_.position_enu.z >= currentGoal().altitude - 1.0) {
           requestFlight(FlightRequest::TRANSITION_TO_FW);
           last_request_ = stamp;
           mission_state_ = MissionState::TRANSITION_TO_FW;
@@ -345,7 +457,9 @@ private:
 
       case MissionState::CRUISE_FW:
         publishIntent(MotionCommand::MODE_FIXED_WING, fw_speed_cruise_, 0.0, true);
-        if (distanceToGoal() <= goal_approach_distance_) {
+        if (!finalGoalActive() && distanceToGoal() <= intermediate_goal_tolerance_) {
+          advanceGoal();
+        } else if (finalGoalActive() && distanceToGoal() <= goal_approach_distance_) {
           requestFlight(FlightRequest::TRANSITION_TO_MC);
           last_request_ = stamp;
           mission_state_ = MissionState::TRANSITION_TO_MC;
@@ -417,10 +531,12 @@ private:
     publishTelemetry();
   }
 
-  double goal_x_ {700.0};
-  double goal_y_ {0.0};
+  std::vector<MissionGoal> goals_;
+  std::string mission_profile_ {"single"};
+  std::size_t active_goal_index_ {0};
   double cruise_altitude_ {15.0};
   double goal_approach_distance_ {30.0};
+  double intermediate_goal_tolerance_ {25.0};
   double goal_tolerance_ {5.0};
   double landing_handover_altitude_ {3.0};
   double landing_altitude_tolerance_ {0.5};
@@ -444,8 +560,11 @@ private:
   bool avoidance_active_ {false};
   bool metrics_tracking_ {false};
   std::string mission_result_ {"pending"};
-  double mission_start_x_ {0.0};
-  double mission_start_y_ {0.0};
+  double leg_start_x_ {0.0};
+  double leg_start_y_ {0.0};
+  double completed_route_distance_ {0.0};
+  double current_leg_nominal_length_ {0.0};
+  double total_route_distance_ {0.0};
   double path_length_ {0.0};
   double max_cross_track_error_ {0.0};
   double nearest_lidar_distance_ {std::numeric_limits<double>::infinity()};

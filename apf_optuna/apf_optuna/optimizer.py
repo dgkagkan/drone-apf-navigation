@@ -11,24 +11,49 @@ from typing import TextIO
 from ament_index_python.packages import get_package_share_directory
 import optuna
 import rclpy
+import yaml
 
-from .evaluator import NON_APF_FAILURES, score_trial, TrialEvaluator
+from .evaluator import NON_APF_FAILURES, score_trial, TrialEvaluator, TrialMetrics
 from .geometry import ObstacleCourse
 
 
 SQLITE_BUSY_TIMEOUT_SECONDS = 120.0
+OPTUNA_PARAMETER_NAMES = (
+    'obstacle_influence_radius',
+    'fw_avoid_trigger_ratio',
+    'fw_attractive_gain',
+    'fw_repulsive_gain',
+    'repulsive_distance_power',
+    'fw_trail_half_width',
+    'fw_max_avoid_angle_deg',
+    'fw_max_avoid_pitch_deg',
+    'vertical_escape_pitch_gain',
+)
 
 
 class NonApfTrialError(RuntimeError):
     pass
 
 
+STARTUP_RETRY_OUTCOMES = frozenset(
+    {
+        'controller_exit',
+        'no_telemetry',
+        'simulator_exit',
+        'stalled',
+        'startup_timeout',
+    }
+)
+
+
+def should_retry_startup(outcome: str, attempt_number: int, maximum_attempts: int) -> bool:
+    return attempt_number < maximum_attempts and outcome in STARTUP_RETRY_OUTCOMES
+
+
 def configure_sqlite_database(database_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(database_path, timeout=SQLITE_BUSY_TIMEOUT_SECONDS) as connection:
-        connection.execute(
-            f'PRAGMA busy_timeout = {int(SQLITE_BUSY_TIMEOUT_SECONDS * 1000)}'
-        )
+        connection.execute(f'PRAGMA busy_timeout = {int(SQLITE_BUSY_TIMEOUT_SECONDS * 1000)}')
         journal_mode = connection.execute('PRAGMA journal_mode').fetchone()[0]
         if journal_mode.lower() != 'wal':
             journal_mode = connection.execute('PRAGMA journal_mode=WAL').fetchone()[0]
@@ -45,6 +70,25 @@ def create_optuna_storage(database_path: Path) -> optuna.storages.RDBStorage:
             'pool_pre_ping': True,
         },
     )
+
+
+def current_controller_parameters() -> dict[str, float]:
+    config_path = Path(get_package_share_directory('drone_control')) / 'config' / 'controller.yaml'
+    with config_path.open(encoding='utf-8') as config_file:
+        config = yaml.safe_load(config_file)
+    apf_parameters = config['apf_safety']['ros__parameters']
+    influence_radius = float(apf_parameters['obstacle_influence_radius'])
+    trigger_distance = float(apf_parameters['fw_avoid_trigger_dist'])
+    if influence_radius <= 0.0 or not 0.0 < trigger_distance <= influence_radius:
+        raise ValueError('controller.yaml contains an invalid APF trigger distance')
+
+    parameters = {
+        'obstacle_influence_radius': influence_radius,
+        'fw_avoid_trigger_ratio': trigger_distance / influence_radius,
+    }
+    for name in OPTUNA_PARAMETER_NAMES[2:]:
+        parameters[name] = float(apf_parameters[name])
+    return parameters
 
 
 class ManagedProcess:
@@ -107,16 +151,23 @@ class OptunaMissionRunner:
         trial.set_user_attr('fw_avoid_trigger_dist', parameters['fw_avoid_trigger_dist'])
         return parameters
 
-    def run_trial(self, trial: optuna.Trial, parameters: dict[str, float]) -> float:
-        trial_directory = self.output_directory / f'trial_{trial.number:05d}'
-        trial_directory.mkdir(parents=True, exist_ok=True)
+    def attempt_environment(
+        self,
+        trial: optuna.Trial,
+        attempt_number: int,
+        attempt_directory: Path,
+    ) -> dict[str, str]:
         environment = os.environ.copy()
         if self.args.worker_id is not None:
             base_partition = environment.get('GZ_PARTITION', 'apf_optuna')
-            environment['GZ_PARTITION'] = f'{base_partition}_trial_{trial.number}'
-        environment['ROS_LOG_DIR'] = str(trial_directory / 'ros_logs')
+            environment['GZ_PARTITION'] = (
+                f'{base_partition}_trial_{trial.number}_attempt_{attempt_number}'
+            )
+        environment['ROS_LOG_DIR'] = str(attempt_directory / 'ros_logs')
         environment['PYTHONUNBUFFERED'] = '1'
+        return environment
 
+    def simulation_command(self, attempt_directory: Path) -> list[str]:
         sim_command = [
             'ros2',
             'launch',
@@ -132,22 +183,42 @@ class OptunaMissionRunner:
                 [
                     f'parallel_worker_id:={self.args.worker_id}',
                     f'agent_port:={self.args.base_agent_port + self.args.worker_id}',
-                    f'px4_work_dir:={trial_directory / "px4"}',
+                    f'px4_work_dir:={attempt_directory / "px4"}',
                 ]
             )
+        return sim_command
+
+    def controller_command(self, parameters: dict[str, float]) -> list[str]:
         controller_command = [
             'ros2',
             'launch',
             'drone_bringup',
             'automated_controller.launch.py',
+            f'mission_profile:={self.args.mission_profile}',
             f'goal_x:={self.args.goal_x}',
             f'goal_y:={self.args.goal_y}',
             f'cruise_altitude:={self.args.cruise_altitude}',
+            f'goal_2_x:={self.args.goal_2_x}',
+            f'goal_2_y:={self.args.goal_2_y}',
+            f'goal_2_altitude:={self.args.goal_2_altitude}',
+            f'goal_3_x:={self.args.goal_3_x}',
+            f'goal_3_y:={self.args.goal_3_y}',
+            f'goal_3_altitude:={self.args.goal_3_altitude}',
+            f'intermediate_goal_tolerance:={self.args.intermediate_goal_tolerance}',
         ]
         if self.args.worker_id is not None:
             controller_command.append(f'target_system:={self.args.worker_id + 1}')
         controller_command.extend(f'{name}:={value}' for name, value in parameters.items())
+        return controller_command
 
+    def execute_attempt(
+        self,
+        trial: optuna.Trial,
+        parameters: dict[str, float],
+        attempt_number: int,
+        attempt_directory: Path,
+    ) -> tuple[TrialMetrics, dict]:
+        environment = self.attempt_environment(trial, attempt_number, attempt_directory)
         evaluator = TrialEvaluator(
             self.course,
             self.args.vehicle_horizontal_radius,
@@ -155,19 +226,24 @@ class OptunaMissionRunner:
             self.args.takeoff_timeout,
             self.args.stall_min_progress,
         )
-        sim_process = ManagedProcess(sim_command, trial_directory / 'simulation.log', environment)
+        sim_process = None
         controller_process = None
         wall_started = time.monotonic()
         fallback_outcome = 'timeout'
 
         try:
+            sim_process = ManagedProcess(
+                self.simulation_command(attempt_directory),
+                attempt_directory / 'simulation.log',
+                environment,
+            )
             time.sleep(self.args.sim_start_delay)
             if sim_process.process.poll() is not None:
                 fallback_outcome = 'simulator_exit'
             else:
                 controller_process = ManagedProcess(
-                    controller_command,
-                    trial_directory / 'controller.log',
+                    self.controller_command(parameters),
+                    attempt_directory / 'controller.log',
                     environment,
                 )
 
@@ -188,14 +264,63 @@ class OptunaMissionRunner:
                     break
                 if wall_elapsed >= self.args.trial_timeout:
                     break
+            return evaluator.metrics(fallback_outcome), evaluator.startup_diagnostics()
         finally:
             if controller_process is not None:
                 controller_process.stop()
-            sim_process.stop()
+            if sim_process is not None:
+                sim_process.stop()
             evaluator.destroy_node()
             time.sleep(self.args.reset_delay)
 
-        metrics = evaluator.metrics(fallback_outcome)
+    def run_trial(self, trial: optuna.Trial, parameters: dict[str, float]) -> float:
+        trial_directory = self.output_directory / f'trial_{trial.number:05d}'
+        trial_directory.mkdir(parents=True, exist_ok=True)
+        attempt_history = []
+        metrics = TrialMetrics()
+
+        for attempt_number in range(1, self.args.startup_attempts + 1):
+            attempt_directory = trial_directory / f'attempt_{attempt_number:02d}'
+            attempt_directory.mkdir(parents=True, exist_ok=True)
+            metrics, readiness = self.execute_attempt(
+                trial,
+                parameters,
+                attempt_number,
+                attempt_directory,
+            )
+            attempt_summary = {
+                'attempt': attempt_number,
+                'outcome': metrics.outcome,
+                'readiness': readiness,
+                'metrics': metrics.as_dict(),
+            }
+            (attempt_directory / 'attempt_summary.json').write_text(
+                json.dumps(attempt_summary, indent=2, sort_keys=True) + '\n',
+                encoding='utf-8',
+            )
+            attempt_history.append(
+                {
+                    'attempt': attempt_number,
+                    'outcome': metrics.outcome,
+                    'readiness': readiness,
+                    'log_directory': attempt_directory.name,
+                }
+            )
+
+            if not should_retry_startup(
+                metrics.outcome,
+                attempt_number,
+                self.args.startup_attempts,
+            ):
+                break
+            print(
+                f'Trial {trial.number} startup attempt {attempt_number}/'
+                f'{self.args.startup_attempts} failed at {readiness["stage"]} '
+                f'({metrics.outcome}); restarting cleanly.',
+                flush=True,
+            )
+            time.sleep(self.args.startup_retry_delay)
+
         score = score_trial(
             metrics,
             self.args.minimum_clearance,
@@ -205,10 +330,20 @@ class OptunaMissionRunner:
             'trial': trial.number,
             'score': score,
             'parameters': parameters,
+            'mission': {
+                'profile': self.args.mission_profile,
+                'goals': self.mission_goals(),
+                'intermediate_goal_tolerance': self.args.intermediate_goal_tolerance,
+            },
             'metrics': metrics.as_dict(),
             'scoring': {
                 'minimum_clearance': self.args.minimum_clearance,
                 'stability_weight': self.args.stability_weight,
+            },
+            'startup': {
+                'attempts_used': len(attempt_history),
+                'maximum_attempts': self.args.startup_attempts,
+                'history': attempt_history,
             },
         }
         (trial_directory / 'result.json').write_text(
@@ -217,6 +352,8 @@ class OptunaMissionRunner:
         )
         for name, value in metrics.as_dict().items():
             trial.set_user_attr(name, value)
+        trial.set_user_attr('startup_attempts_used', len(attempt_history))
+        trial.set_user_attr('startup_retry_count', max(0, len(attempt_history) - 1))
         if metrics.outcome in NON_APF_FAILURES:
             raise NonApfTrialError(
                 f'{metrics.outcome} is unrelated to APF parameters and must be ignored'
@@ -227,15 +364,52 @@ class OptunaMissionRunner:
         parameters = self.suggest_parameters(trial)
         return self.run_trial(trial, parameters)
 
+    def mission_goals(self) -> list[dict[str, float]]:
+        goals = [
+            {
+                'x': self.args.goal_x,
+                'y': self.args.goal_y,
+                'altitude': self.args.cruise_altitude,
+            }
+        ]
+        if self.args.mission_profile == 'three_goal':
+            goals.extend(
+                [
+                    {
+                        'x': self.args.goal_2_x,
+                        'y': self.args.goal_2_y,
+                        'altitude': self.args.goal_2_altitude,
+                    },
+                    {
+                        'x': self.args.goal_3_x,
+                        'y': self.args.goal_3_y,
+                        'altitude': self.args.goal_3_altitude,
+                    },
+                ]
+            )
+        return goals
+
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Optimize VTOL 3D APF parameters in Gazebo.')
     parser.add_argument('--trials', type=int, default=5)
     parser.add_argument('--study-name', default='vtol_3d_apf')
     parser.add_argument('--output-directory', default='optuna_results')
+    parser.add_argument(
+        '--mission-profile',
+        choices=('single', 'three_goal'),
+        default='single',
+    )
     parser.add_argument('--goal-x', type=float, default=700.0)
     parser.add_argument('--goal-y', type=float, default=0.0)
     parser.add_argument('--cruise-altitude', type=float, default=15.0)
+    parser.add_argument('--goal-2-x', type=float, default=0.0)
+    parser.add_argument('--goal-2-y', type=float, default=0.0)
+    parser.add_argument('--goal-2-altitude', type=float, default=15.0)
+    parser.add_argument('--goal-3-x', type=float, default=750.0)
+    parser.add_argument('--goal-3-y', type=float, default=15.0)
+    parser.add_argument('--goal-3-altitude', type=float, default=15.0)
+    parser.add_argument('--intermediate-goal-tolerance', type=float, default=25.0)
     parser.add_argument('--minimum-clearance', type=float, default=2.0)
     parser.add_argument(
         '--stability-weight',
@@ -246,8 +420,10 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument('--vehicle-horizontal-radius', type=float, default=1.1)
     parser.add_argument('--vehicle-vertical-radius', type=float, default=0.3)
     parser.add_argument('--sim-start-delay', type=float, default=5.0)
-    parser.add_argument('--reset-delay', type=float, default=3.0)
+    parser.add_argument('--reset-delay', type=float, default=6.0)
     parser.add_argument('--startup-timeout', type=float, default=90.0)
+    parser.add_argument('--startup-attempts', type=int, default=3)
+    parser.add_argument('--startup-retry-delay', type=float, default=8.0)
     parser.add_argument('--trial-timeout', type=float, default=240.0)
     parser.add_argument('--takeoff-timeout', type=float, default=45.0)
     parser.add_argument('--stall-min-progress', type=float, default=20.0)
@@ -270,6 +446,11 @@ def parse_arguments() -> argparse.Namespace:
         help='Run Gazebo without its GUI. The GUI is shown by default.',
     )
     parser.add_argument(
+        '--enqueue-current-controller-parameters',
+        action='store_true',
+        help='Run the next trial with the APF values currently stored in controller.yaml.',
+    )
+    parser.add_argument(
         '--initialize-only',
         action='store_true',
         help='Create and configure the shared Optuna study, then exit.',
@@ -277,6 +458,14 @@ def parse_arguments() -> argparse.Namespace:
     args = parser.parse_args()
     if args.stability_weight < 0.0:
         parser.error('--stability-weight must be non-negative')
+    if args.intermediate_goal_tolerance <= 0.0:
+        parser.error('--intermediate-goal-tolerance must be positive')
+    if args.startup_attempts <= 0:
+        parser.error('--startup-attempts must be positive')
+    if args.startup_retry_delay < 0.0:
+        parser.error('--startup-retry-delay must be non-negative')
+    if args.reset_delay < 0.0:
+        parser.error('--reset-delay must be non-negative')
     return args
 
 
@@ -326,6 +515,13 @@ def main() -> None:
     rclpy.init()
     try:
         runner = OptunaMissionRunner(args)
+        if args.enqueue_current_controller_parameters:
+            parameters = current_controller_parameters()
+            study.enqueue_trial(
+                parameters,
+                user_attrs={'parameter_source': 'controller.yaml'},
+            )
+            print('Queued current controller.yaml APF parameters for the next trial.')
         study.optimize(
             runner.objective,
             n_trials=args.trials,
