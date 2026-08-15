@@ -13,6 +13,7 @@ install(DIRECTORY
   config
   worlds
   px4
+  media
   DESTINATION share/${PROJECT_NAME}/
 )
 

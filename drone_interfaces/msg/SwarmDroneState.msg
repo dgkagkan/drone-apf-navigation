@@ -1,0 +1,17 @@
+std_msgs/Header header
+string drone_id
+string drone_namespace
+string boot_id
+bool registered
+bool connected
+bool localized
+bool navigation_ready
+bool available
+bool busy
+bool armed
+bool offboard
+bool has_lidar
+bool supports_fixed_wing
+bool supports_vtol
+float64 last_update_age_sec
+geometry_msgs/Point position

@@ -56,6 +56,11 @@ add_executable(point_cloud_throttle_node src/point_cloud_throttle_node.cpp)
 target_compile_features(point_cloud_throttle_node PRIVATE cxx_std_17)
 ament_target_dependencies(point_cloud_throttle_node rclcpp sensor_msgs)
 
+add_executable(route_executor_node src/route_executor_node.cpp)
+target_compile_features(route_executor_node PRIVATE cxx_std_17)
+ament_target_dependencies(route_executor_node
+  drone_interfaces rclcpp rclcpp_action)
+
 add_executable(navigation_server_node src/navigation_server_node.cpp)
 target_compile_features(navigation_server_node PRIVATE cxx_std_17)
 ament_target_dependencies(navigation_server_node
@@ -74,6 +79,7 @@ install(TARGETS
   command_mux_node
   lidar_processor_node
   point_cloud_throttle_node
+  route_executor_node
   navigation_client_node
   navigation_server_node
   EXPORT export_apf_solver

@@ -39,6 +39,9 @@ public:
       0.0, declare_parameter<double>("minimum_altitude_m", 0.5));
     target_system_ = static_cast<uint8_t>(std::clamp(
       declare_parameter<int64_t>("target_system", 1), int64_t{1}, int64_t{255}));
+    map_origin_east_m_ = declare_parameter<double>("map_origin_east_m", 0.0);
+    map_origin_north_m_ = declare_parameter<double>("map_origin_north_m", 0.0);
+    map_origin_up_m_ = declare_parameter<double>("map_origin_up_m", 0.0);
 
     auto px4_qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort();
     status_sub_ = create_subscription<VS>(
@@ -137,9 +140,9 @@ private:
     state.offboard = have_status_ && status_.nav_state == VS::NAVIGATION_STATE_OFFBOARD;
     state.vehicle_mode = currentMode();
     if (have_position_) {
-      state.position_enu.x = position_.y;
-      state.position_enu.y = position_.x;
-      state.position_enu.z = -position_.z;
+      state.position_enu.x = map_origin_east_m_ + position_.y;
+      state.position_enu.y = map_origin_north_m_ + position_.x;
+      state.position_enu.z = map_origin_up_m_ - position_.z;
       state.velocity_enu.x = position_.vy;
       state.velocity_enu.y = position_.vx;
       state.velocity_enu.z = -position_.vz;
@@ -196,12 +199,13 @@ private:
 
     px4_msgs::msg::TrajectorySetpoint setpoint;
     setpoint.timestamp = timestampUs();
+    const double target_altitude_local_m = command.target_altitude_m - map_origin_up_m_;
     if (use_fw_position) {
       const double speed = std::hypot(east_velocity, north_velocity);
       const double current_altitude = -position_.z;
       const double altitude_base = up_velocity > 0.0 ?
-        std::max(command.target_altitude_m, current_altitude) :
-        command.target_altitude_m;
+        std::max(target_altitude_local_m, current_altitude) :
+        target_altitude_local_m;
       const double projected_altitude = std::max(
         minimum_altitude_m_,
         altitude_base + fw_lookahead_m_ * up_velocity / speed);
@@ -212,7 +216,7 @@ private:
     } else if (use_mc_altitude_hold) {
       setpoint.position = {
         nan(), nan(),
-        static_cast<float>(-std::max(minimum_altitude_m_, command.target_altitude_m))};
+        static_cast<float>(-std::max(minimum_altitude_m_, target_altitude_local_m))};
     } else {
       setpoint.position = {nan(), nan(), nan()};
     }
@@ -238,6 +242,9 @@ private:
   double max_horizontal_speed_m_s_ {25.0};
   double max_vertical_speed_m_s_ {5.0};
   double minimum_altitude_m_ {0.5};
+  double map_origin_east_m_ {0.0};
+  double map_origin_north_m_ {0.0};
+  double map_origin_up_m_ {0.0};
   uint8_t target_system_ {1};
   VS status_;
   px4_msgs::msg::VehicleLocalPosition position_;

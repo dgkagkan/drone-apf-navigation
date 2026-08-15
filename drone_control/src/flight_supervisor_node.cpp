@@ -297,6 +297,7 @@ private:
     if (state.vehicle_mode != VehicleState::MODE_MULTICOPTER && commandDue()) {
       sendCommand(VC::VEHICLE_CMD_DO_VTOL_TRANSITION, 3.0F);
     }
+    if (!state.armed || !state.offboard) arm_offboard_requested_ = true;
     processArmOffboard(state);
     publishTakeoffIntent(goal->target_altitude_m, goal->climb_speed_m_s);
 

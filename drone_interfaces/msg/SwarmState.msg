@@ -1,0 +1,9 @@
+std_msgs/Header header
+uint32 pending_target_count
+uint32 active_target_count
+uint32 available_drone_count
+bool dispatch_in_progress
+bool mission_active
+string status_message
+SwarmDroneState[] drones
+SwarmAssignment[] assignments

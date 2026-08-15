@@ -1,0 +1,4 @@
+uint64 target_id
+geometry_msgs/PoseStamped target
+float64 cruise_speed_m_s
+bool use_fixed_wing

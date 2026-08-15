@@ -53,6 +53,8 @@ public:
       0.1, declare_parameter<double>("altitude_gain", 0.8));
     max_vertical_speed_m_s_ = std::max(
       0.2, declare_parameter<double>("max_vertical_speed_m_s", 3.0));
+    transition_request_period_s_ = std::max(
+      0.2, declare_parameter<double>("transition_request_period_s", 1.0));
 
     if (no_fly_zone_values_.size() % 6 != 0) {
       RCLCPP_ERROR(
@@ -179,7 +181,7 @@ private:
       std::lock_guard<std::mutex> lock(mutex_);
       previous = active_goal_;
       active_goal_ = goal_handle;
-      requested_transition_ = false;
+      last_transition_request_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
       arrival_hold_pending_ = false;
       arrival_hold_active_ = false;
       hold_transition_requested_ = false;
@@ -247,6 +249,17 @@ private:
     arrival_hold_pending_ = true;
     arrival_hold_active_ = false;
     hold_transition_requested_ = false;
+  }
+
+  bool transitionRequestDue()
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto current_time = now();
+    if ((current_time - last_transition_request_).seconds() < transition_request_period_s_) {
+      return false;
+    }
+    last_transition_request_ = current_time;
+    return true;
   }
 
   void processArrivalHold(const VehicleState & state)
@@ -375,13 +388,18 @@ private:
       return;
     }
 
-    if (!requested_transition_) {
+    const uint8_t requested_vehicle_mode = goal->use_fixed_wing ?
+      VehicleState::MODE_FIXED_WING : VehicleState::MODE_MULTICOPTER;
+    if (state.vehicle_mode != requested_vehicle_mode && transitionRequestDue())
+    {
       FlightRequest request;
       request.header.stamp = now();
       request.request = goal->use_fixed_wing ?
         FlightRequest::TRANSITION_TO_FW : FlightRequest::TRANSITION_TO_MC;
       flight_request_pub_->publish(request);
-      requested_transition_ = true;
+      RCLCPP_INFO(
+        get_logger(), "Requesting VTOL transition to %s",
+        goal->use_fixed_wing ? "fixed wing" : "multicopter");
     }
 
     const double requested_speed = goal->cruise_speed_m_s > 0.0 ?
@@ -407,7 +425,13 @@ private:
     command_pub_->publish(command);
 
     auto feedback = std::make_shared<NavigateTo::Feedback>();
-    feedback->phase = goal->use_fixed_wing ? "fixed-wing cruise" : "multicopter navigation";
+    if (state.vehicle_mode != requested_vehicle_mode) {
+      feedback->phase = goal->use_fixed_wing ?
+        "transitioning to fixed wing" : "transitioning to multicopter";
+    } else {
+      feedback->phase = goal->use_fixed_wing ?
+        "fixed-wing cruise" : "multicopter navigation";
+    }
     feedback->remaining_distance_m = distance;
     feedback->avoidance_active = avoidance_active;
     feedback->apf_mode = active_apf_mode;
@@ -433,13 +457,14 @@ private:
   double max_speed_m_s_ {20.0};
   double altitude_gain_ {0.8};
   double max_vertical_speed_m_s_ {3.0};
+  double transition_request_period_s_ {1.0};
   std::mutex mutex_;
   VehicleState state_;
   bool have_state_ {false};
   bool manual_override_ {false};
   bool avoidance_active_ {false};
   std::string active_apf_mode_ {"unknown"};
-  bool requested_transition_ {false};
+  rclcpp::Time last_transition_request_ {0, 0, RCL_ROS_TIME};
   bool arrival_hold_pending_ {false};
   bool arrival_hold_active_ {false};
   bool hold_transition_requested_ {false};

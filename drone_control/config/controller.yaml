@@ -29,6 +29,9 @@ px4_gateway:
     max_vertical_speed_m_s: 5.0
     minimum_altitude_m: 0.5
     target_system: 1
+    map_origin_east_m: 0.0
+    map_origin_north_m: 0.0
+    map_origin_up_m: 0.0
 
 flight_supervisor:
   ros__parameters:
@@ -105,6 +108,7 @@ navigation_server:
     max_speed_m_s: 20.0
     altitude_gain: 0.8
     max_vertical_speed_m_s: 3.0
+    transition_request_period_s: 1.0
 
 navigation_client:
   ros__parameters:

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <pattern id="grass-blades" width="72" height="72" patternUnits="userSpaceOnUse">
+      <path d="M8 67 C8 50 12 38 17 23 M14 67 C18 49 23 39 30 31 M34 69 C34 51 38 41 42 28 M48 68 C50 53 56 44 63 35 M58 68 C60 53 65 48 70 45"
+            fill="none" stroke="#477a2b" stroke-width="2.2" stroke-linecap="round" opacity="0.42"/>
+      <path d="M4 69 C12 63 17 60 22 55 M39 69 C45 63 51 58 58 53"
+            fill="none" stroke="#86a94a" stroke-width="1.8" stroke-linecap="round" opacity="0.30"/>
+    </pattern>
+  </defs>
+  <rect width="1024" height="1024" fill="#557d32"/>
+  <path d="M0 170 C180 110 330 210 510 145 S840 95 1024 165
+           M0 520 C220 445 350 570 560 495 S850 455 1024 540
+           M0 845 C180 780 360 885 560 810 S850 770 1024 860"
+        fill="none" stroke="#789b43" stroke-width="90" opacity="0.16"/>
+  <rect width="1024" height="1024" fill="url(#grass-blades)"/>
+</svg>

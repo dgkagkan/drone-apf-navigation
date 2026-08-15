@@ -1,0 +1,21 @@
+uint8 RECEIVED=0
+uint8 ACCEPTED=1
+uint8 EXECUTING=2
+uint8 SUCCEEDED=3
+uint8 CANCELED=4
+uint8 REJECTED=5
+uint8 FAILED=6
+
+std_msgs/Header header
+uint64 command_id
+uint64 mission_id
+uint32 revision
+string drone_id
+uint64 route_id
+uint8 state
+uint32 stored_target_count
+uint64 active_target_id
+uint32 active_target_index
+uint32 completed_target_count
+float64 remaining_distance_m
+string message

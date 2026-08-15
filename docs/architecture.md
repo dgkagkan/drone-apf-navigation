@@ -11,6 +11,9 @@ to publish commands to PX4.
 /navigate_to -> navigation_server /
 automated_mission ----------------/
 
+/swarm/mission_command -> route_executor -> sequential /navigate_to goals
+route_executor -> /swarm/mission_feedback -> swarm_coordinator
+
 /scan_3d/points -> lidar_processor -> /perception/obstacles -> apf_safety
 /fmu/out/* -> px4_gateway -> /vehicle/state -> control and navigation nodes
 ```
@@ -22,6 +25,8 @@ automated_mission ----------------/
   automated mission sequencing, and the PX4 gateway.
 - `drone_navigation`: LiDAR filtering, command arbitration, shared 3D APF,
   goal validation/action handling, and passive RViz visualization.
+- `drone_swarm`: buffered target submission, dynamic healthy-drone snapshots,
+  multi-drone route optimization, and asynchronous per-drone route dispatch.
 - `drone_bringup`: launch composition and simulation configuration.
 - `apf_optuna`: trial orchestration and scoring using the same modular APF path.
 
@@ -42,6 +47,11 @@ automated_mission ----------------/
   captured at arrival.
 - `navigation_client_node` provides the interactive terminal, validates and
   queues multiple goals, and sends them sequentially to `/navigate_to`.
+- `route_executor_node` is the headless local route memory used by the swarm.
+  It receives the common `/swarm/mission_command` broadcast, extracts only the
+  route matching its `drone_id`, stores it, and feeds the targets sequentially
+  to the existing namespaced `/navigate_to` action. It publishes acknowledgements,
+  progress, terminal results, and cancellation on `/swarm/mission_feedback`.
 - `apf_visualizer_node` receives each active navigation goal and draws a
   kinematically feasible nominal path without APF from the vehicle's current
   heading. The path respects configured FW turn-rate and pitch limits. It also
@@ -54,6 +64,9 @@ automated_mission ----------------/
 
 - `controller.launch.py`: manual PS4 control, navigation action, APF, gimbal,
   and optional RViz visualization.
+- `swarm_sim.launch.py`: three independent PX4 SITL vehicles, three XRCE
+  agents, three namespaced controller stacks, and the swarm coordinator in one
+  Gazebo world.
 - `automated_controller.launch.py`: automated/Optuna mission using the same
   LiDAR, APF, supervisor, and gateway nodes.
 - `apf.launch.py`: compatibility wrapper for the modular automated mission.
@@ -68,6 +81,143 @@ ros2 action send_goal /takeoff drone_interfaces/action/Takeoff \
   "{target_altitude_m: 15.0, climb_speed_m_s: 3.0}"
 
 ros2 service call /flight/arm drone_interfaces/srv/Arm "{arm: true}"
+```
+
+## Swarm Coordinator
+
+The coordinator never moves a drone when a target is submitted. Each target is
+validated and stored in `pending_targets`; routing starts only after a typed
+`CALCULATE` or `RECALCULATE` command. At that moment the coordinator snapshots
+the connected, localized, available drones and builds one ordered route per
+selected drone. It then publishes one typed broadcast containing all routes on
+`/swarm/mission_command`. Every drone receives the broadcast but processes only
+the `SwarmRoute` whose `drone_id` matches its own ID. Targets move to
+`active_targets` only after every selected drone acknowledges that it accepted
+and stored its route through `/swarm/mission_feedback`.
+
+The common command message carries `command_id`, `mission_id`, `revision`, an
+`EXECUTE` or `CANCEL` command, and an array of typed per-drone routes. The common
+feedback message carries those identifiers plus `drone_id`, `route_id`, state,
+progress counters, remaining distance, and a diagnostic message. This preserves
+action-like cancel and feedback semantics over a real one-to-many broadcast;
+the existing per-drone `/navigate_to` interface remains a standard ROS 2 action.
+
+Swarm membership is dynamic and lease-based. Every complete drone stack runs a
+`swarm_member_node`, registers through `/swarm/register_drone`, and publishes a
+typed heartbeat on `/swarm/drone_heartbeat`. Registration includes the unique
+drone ID, namespace, boot-session ID, local API names, and capabilities. The
+coordinator accepts a drone for routing only while its heartbeat, PX4 state,
+localization, and navigation action are all fresh. A duplicate live drone ID is
+rejected; a restarted drone can reclaim its ID after the previous lease expires.
+The authoritative list and health of all members is published in
+`/swarm/state.drones`, which also makes operator control dynamic.
+
+The scalable route solver has no hard target-count limit. It starts from a
+global drone-to-target seed assignment, adds every remaining target at its
+lowest insertion cost, and improves the result with 2-opt and cross-route
+relocation passes. Every target appears exactly once. The optimized cost is the
+sum of the 3D legs from each current drone position through its ordered targets;
+return-to-base is not required.
+
+```bash
+ros2 service call /swarm/add_target drone_interfaces/srv/AddSwarmTarget \
+  "{target: {header: {frame_id: map}, pose: {position: {x: 25.0, y: 700.0, z: 14.0}}}, cruise_speed_m_s: 20.0, use_fixed_wing: true}"
+
+# CALCULATE=0, CLEAR_PENDING_TARGETS=1, CANCEL_ACTIVE_MISSION=2, RECALCULATE=3
+ros2 service call /swarm/command drone_interfaces/srv/SwarmCommand "{command: 0}"
+```
+
+The swarm terminal can prepare all drones or one selected drone before
+assignment. `arm` and `takeoff` target all configured drones; adding a number
+targets only that drone. Takeoff altitude and climb speed are configured in
+`drone_swarm/config/swarm.yaml`.
+
+```text
+swarm> arm
+swarm> arm 1
+swarm> takeoff
+swarm> takeoff 1
+swarm> calculate
+```
+
+`drone_bringup/launch/swarm.launch.py` starts the coordinator and its terminal.
+The drones must be in the same ROS domain and common `map` frame and must expose
+namespaced `vehicle/state` and `navigate_to` APIs, plus a local route executor.
+All route executors share `/swarm/mission_command` and `/swarm/mission_feedback`.
+The coordinator also discovers newly appearing namespaced `vehicle/state` topics,
+so each calculation can use a different healthy subset of the swarm.
+Start each namespaced controller stack with `navigation_client_terminal:=false`
+so the coordinator remains the only navigation-goal owner.
+
+`drone_bringup/launch/drone_brain.launch.py` starts one complete ROS brain
+without Gazebo, PX4 SITL, RViz, or a coordinator. It is the launch used on a
+Raspberry Pi or other onboard computer. In simulation,
+`drone_bringup/launch/add_sim_vehicle.launch.py` runs on the main PC and adds
+only the matching PX4 SITL instance, XRCE agent, Gazebo model, sensor bridges,
+and throttled shared-map cloud. This keeps rendering on the PC while APF and
+navigation execute on the independent drone computer.
+
+For a remote brain connected directly over Ethernet, start the PC simulation
+and the onboard brain in the same explicit ROS domain:
+
+```bash
+# Main PC
+ros2 launch drone_bringup swarm_sim.launch.py \
+  network_mode:=lan ros_domain_id:=10
+
+ros2 launch drone_bringup add_sim_vehicle.launch.py \
+  drone_id:=drone_4 px4_instance:=3 system_id:=4 agent_port:=8891 \
+  network_mode:=lan ros_domain_id:=10
+
+# Raspberry Pi
+ros2 launch drone_bringup drone_brain.launch.py \
+  drone_id:=drone_4 target_system:=4 use_sim_time:=true \
+  use_ground_truth:=false lidar_points_topic:=scan_3d/filtered_points \
+  publish_robot_description:=false network_mode:=lan ros_domain_id:=10
+```
+
+Gazebo Transport and the PX4-to-agent UDP links remain on the PC. ROS 2 uses the
+direct Ethernet subnet for communication with the Pi. The throttled LiDAR topic
+is used by the remote simulated brain instead of the full-rate raw cloud.
+The LAN launch profiles explicitly allow only `lo` plus `enp12s0` on the PC and
+`lo` plus `eth0` on the Pi, so DDS discovery and data cannot use the Wi-Fi
+interface. If either Ethernet interface is renamed, update the matching
+`fastdds_ethernet_pc.xml` or `fastdds_ethernet_pi.xml` file.
+
+## Three-drone simulation
+
+The complete local swarm simulation uses one custom VTOL model per vehicle and
+keeps each autopilot path independent:
+
+| Drone | PX4 instance | MAV system ID | XRCE UDP port | Initial map position |
+| --- | ---: | ---: | ---: | --- |
+| `drone_1` | 0 | 1 | 8888 | `(0, 0, 0)` |
+| `drone_2` | 1 | 2 | 8889 | `(0, 8, 0)` |
+| `drone_3` | 2 | 3 | 8890 | `(0, -8, 0)` |
+
+```bash
+colcon build --packages-select drone_interfaces drone_description \
+  drone_control drone_navigation drone_swarm drone_bringup
+source install/setup.bash
+ros2 launch drone_bringup swarm_sim.launch.py
+```
+
+The default swarm world is `test`, containing the tiled grass ground and the
+90 distributed obstacles. Use `world:=optuna_course` when the optimization
+course is needed.
+
+Use `headless:=true operator_terminal:=false` for a non-GUI smoke test. The
+launch forces ROS 2, Fast DDS, Gazebo Transport, and all PX4-to-agent links onto
+the loopback interface. The physical Ethernet and Wi-Fi interfaces are not used.
+
+Commands launched by `swarm_sim.launch.py` inherit the local-only environment.
+For a separate terminal that must inspect the same graph, use:
+
+```bash
+source install/setup.bash
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+unset ROS_LOCALHOST_ONLY FASTDDS_DEFAULT_PROFILES_FILE FASTRTPS_DEFAULT_PROFILES_FILE
 ```
 
 ## Interactive Navigation Terminal

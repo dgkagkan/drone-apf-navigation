@@ -27,6 +27,8 @@ public:
     input_topic_ = declare_parameter<std::string>("input_topic", "/scan_3d/points");
     output_topic_ =
       declare_parameter<std::string>("output_topic", "/scan_3d/filtered_points");
+    secondary_output_topic_ =
+      declare_parameter<std::string>("secondary_output_topic", "");
     min_valid_range_ = std::max(
       0.0, declare_parameter<double>("min_valid_range", 0.2));
     max_valid_range_ = std::max(
@@ -36,13 +38,19 @@ public:
     cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
       input_topic_, qos, std::bind(&PointCloudThrottle::onCloud, this, _1));
     cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(output_topic_, qos);
+    if (!secondary_output_topic_.empty()) {
+      secondary_cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+        secondary_output_topic_, qos);
+    }
     timer_ = create_wall_timer(
       std::chrono::duration<double>(1.0 / publish_rate),
       std::bind(&PointCloudThrottle::publishLatest, this));
 
     RCLCPP_INFO(
-      get_logger(), "PointCloud filter: %s -> %s at %.1fHz, valid range %.1f-%.1fm",
-      input_topic_.c_str(), output_topic_.c_str(), publish_rate,
+      get_logger(), "PointCloud filter: %s -> %s%s%s at %.1fHz, valid range %.1f-%.1fm",
+      input_topic_.c_str(), output_topic_.c_str(),
+      secondary_output_topic_.empty() ? "" : " and ",
+      secondary_output_topic_.c_str(), publish_rate,
       min_valid_range_, max_valid_range_);
   }
 
@@ -63,7 +71,10 @@ private:
     if (!cloud) return;
 
     sensor_msgs::msg::PointCloud2 filtered;
-    if (filterCloud(*cloud, filtered)) cloud_pub_->publish(filtered);
+    if (!filterCloud(*cloud, filtered)) return;
+
+    cloud_pub_->publish(filtered);
+    if (secondary_cloud_pub_) secondary_cloud_pub_->publish(filtered);
   }
 
   bool filterCloud(
@@ -170,12 +181,14 @@ private:
 
   std::string input_topic_;
   std::string output_topic_;
+  std::string secondary_output_topic_;
   double min_valid_range_{0.2};
   double max_valid_range_{78.0};
   std::mutex cloud_mutex_;
   sensor_msgs::msg::PointCloud2::SharedPtr latest_cloud_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr secondary_cloud_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 
