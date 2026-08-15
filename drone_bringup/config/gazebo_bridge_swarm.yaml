@@ -22,6 +22,11 @@
   ros_type_name: "nav_msgs/msg/Odometry"
   gz_type_name: "gz.msgs.Odometry"
   direction: GZ_TO_ROS
+- ros_topic_name: "/drone_1/gimbal_camera"
+  gz_topic_name: "/drone_1/gimbal_camera"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
 - ros_topic_name: "/drone_1/gimbal/cmd_pan"
   gz_topic_name: "/drone_1/gimbal/cmd_pan"
   ros_type_name: "std_msgs/msg/Float64"
@@ -58,6 +63,11 @@
   ros_type_name: "nav_msgs/msg/Odometry"
   gz_type_name: "gz.msgs.Odometry"
   direction: GZ_TO_ROS
+- ros_topic_name: "/drone_2/gimbal_camera"
+  gz_topic_name: "/drone_2/gimbal_camera"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
 - ros_topic_name: "/drone_2/gimbal/cmd_pan"
   gz_topic_name: "/drone_2/gimbal/cmd_pan"
   ros_type_name: "std_msgs/msg/Float64"
@@ -93,6 +103,11 @@
   gz_topic_name: "/drone_3/ground_truth/odometry"
   ros_type_name: "nav_msgs/msg/Odometry"
   gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
+- ros_topic_name: "/drone_3/gimbal_camera"
+  gz_topic_name: "/drone_3/gimbal_camera"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
   direction: GZ_TO_ROS
 - ros_topic_name: "/drone_3/gimbal/cmd_pan"
   gz_topic_name: "/drone_3/gimbal/cmd_pan"

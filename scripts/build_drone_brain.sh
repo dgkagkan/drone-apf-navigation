@@ -43,6 +43,7 @@ colcon --log-base log/onboard build \
     drone_control \
     drone_navigation \
     drone_swarm \
+    drone_dashboard \
     drone_bringup \
   --packages-select \
     drone_interfaces \
@@ -50,6 +51,7 @@ colcon --log-base log/onboard build \
     drone_control \
     drone_navigation \
     drone_swarm \
+    drone_dashboard \
     drone_bringup \
   --cmake-args \
     -DDRONE_ONBOARD_BUILD=ON \

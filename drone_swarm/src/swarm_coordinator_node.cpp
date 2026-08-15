@@ -27,6 +27,7 @@
 #include <drone_interfaces/msg/vehicle_state.hpp>
 #include <drone_interfaces/srv/add_swarm_target.hpp>
 #include <drone_interfaces/srv/register_swarm_drone.hpp>
+#include <drone_interfaces/srv/remove_swarm_target.hpp>
 #include <drone_interfaces/srv/swarm_command.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -35,6 +36,7 @@
 using AddSwarmTarget = drone_interfaces::srv::AddSwarmTarget;
 using RouteTarget = drone_interfaces::msg::RouteTarget;
 using RegisterSwarmDrone = drone_interfaces::srv::RegisterSwarmDrone;
+using RemoveSwarmTarget = drone_interfaces::srv::RemoveSwarmTarget;
 using SwarmAssignment = drone_interfaces::msg::SwarmAssignment;
 using SwarmCommand = drone_interfaces::srv::SwarmCommand;
 using SwarmDroneHeartbeat = drone_interfaces::msg::SwarmDroneHeartbeat;
@@ -97,6 +99,8 @@ public:
       std::bind(&SwarmCoordinatorNode::onDroneHeartbeat, this, _1));
     add_target_service_ = create_service<AddSwarmTarget>(
       "/swarm/add_target", std::bind(&SwarmCoordinatorNode::addTarget, this, _1, _2));
+    remove_target_service_ = create_service<RemoveSwarmTarget>(
+      "/swarm/remove_target", std::bind(&SwarmCoordinatorNode::removeTarget, this, _1, _2));
     command_service_ = create_service<SwarmCommand>(
       "/swarm/command", std::bind(&SwarmCoordinatorNode::handleCommand, this, _1, _2));
     register_drone_service_ = create_service<RegisterSwarmDrone>(
@@ -475,7 +479,7 @@ private:
         response->accepted = cancelActiveMission(response->message);
         break;
       case SwarmCommand::Request::RETURN_HOME:
-        response->accepted = startHomeMission(response->message);
+        response->accepted = startHomeMission(request->drone_id, response->message);
         break;
       default:
         response->message = "unknown swarm command";
@@ -486,6 +490,31 @@ private:
     response->pending_target_count = pending_targets_.size();
     response->active_target_count = active_targets_.size();
     response->assigned_drone_count = current_routes_.size();
+  }
+
+  void removeTarget(
+    const RemoveSwarmTarget::Request::SharedPtr request,
+    RemoveSwarmTarget::Response::SharedPtr response)
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (dispatch_phase_ != DispatchPhase::IDLE) {
+      response->message = "cannot remove a target while broadcast feedback is pending";
+      response->pending_target_count = pending_targets_.size();
+      return;
+    }
+    const auto target = std::find_if(
+      pending_targets_.begin(), pending_targets_.end(),
+      [&request](const TargetRecord & candidate) {return candidate.id == request->target_id;});
+    if (target == pending_targets_.end()) {
+      response->message = "pending target " + std::to_string(request->target_id) + " was not found";
+      response->pending_target_count = pending_targets_.size();
+      return;
+    }
+    pending_targets_.erase(target);
+    response->removed = true;
+    response->pending_target_count = pending_targets_.size();
+    response->message = "removed pending target " + std::to_string(request->target_id);
+    status_message_ = response->message;
   }
 
   bool droneHealthy(const DroneRecord & drone, const rclcpp::Time & current_time) const
@@ -652,11 +681,13 @@ private:
     return true;
   }
 
-  bool startHomeMission(std::string & message)
+  bool startHomeMission(const std::string & selected_drone_id, std::string & message)
   {
     std::map<std::string, RouteRecord> plan;
     uint64_t command_id = 0;
     uint64_t mission_id = 0;
+    uint64_t previous_mission_id = 0;
+    uint32_t previous_revision = 0;
     uint32_t revision = 1;
     const auto current_time = now();
     {
@@ -667,6 +698,7 @@ private:
       }
 
       for (const auto & drone : drones_) {
+        if (!selected_drone_id.empty() && drone->id != selected_drone_id) continue;
         if (!droneHealthy(*drone, current_time) || !drone->have_geofence_origin) continue;
 
         TargetRecord target;
@@ -693,10 +725,14 @@ private:
         plan[drone->id] = std::move(route);
       }
       if (plan.empty()) {
-        message = "no connected and localized drones with a recorded home position were found";
+        message = selected_drone_id.empty() ?
+          "no connected and localized drones with a recorded home position were found" :
+          "selected drone is not connected, localized, or missing its home position";
         return false;
       }
 
+      previous_mission_id = active_mission_id_;
+      previous_revision = active_revision_;
       restoreActiveTargetsLocked();
       current_routes_.clear();
       provisional_routes_.clear();
@@ -716,6 +752,7 @@ private:
       message = status_message_;
     }
 
+    publishCancelCommand(previous_mission_id, previous_revision);
     RCLCPP_INFO(get_logger(), "Returning %zu drone(s) to their recorded home positions", plan.size());
     publishExecuteCommand(command_id, mission_id, revision, plan);
     return true;
@@ -1096,6 +1133,22 @@ private:
       state.dispatch_in_progress = dispatch_phase_ != DispatchPhase::IDLE;
       state.mission_active = !current_routes_.empty();
       state.status_message = status_message_;
+      for (const auto & target : pending_targets_) {
+        RouteTarget route_target;
+        route_target.target_id = target.id;
+        route_target.target = target.target;
+        route_target.cruise_speed_m_s = target.cruise_speed_m_s;
+        route_target.use_fixed_wing = target.use_fixed_wing;
+        state.pending_targets.push_back(std::move(route_target));
+      }
+      for (const auto & active : active_targets_) {
+        RouteTarget route_target;
+        route_target.target_id = active.second.id;
+        route_target.target = active.second.target;
+        route_target.cruise_speed_m_s = active.second.cruise_speed_m_s;
+        route_target.use_fixed_wing = active.second.use_fixed_wing;
+        state.active_targets.push_back(std::move(route_target));
+      }
       const auto current_time = now();
       state.available_drone_count = std::count_if(
         drones_.begin(), drones_.end(),
@@ -1210,6 +1263,7 @@ private:
   rclcpp::Subscription<SwarmMissionFeedback>::SharedPtr mission_feedback_sub_;
   rclcpp::Subscription<SwarmDroneHeartbeat>::SharedPtr heartbeat_sub_;
   rclcpp::Service<AddSwarmTarget>::SharedPtr add_target_service_;
+  rclcpp::Service<RemoveSwarmTarget>::SharedPtr remove_target_service_;
   rclcpp::Service<SwarmCommand>::SharedPtr command_service_;
   rclcpp::Service<RegisterSwarmDrone>::SharedPtr register_drone_service_;
   rclcpp::Publisher<SwarmState>::SharedPtr state_pub_;

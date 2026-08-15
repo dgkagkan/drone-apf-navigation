@@ -114,6 +114,8 @@ def _launch_setup(context):
     world = LaunchConfiguration("world").perform(context)
     headless = LaunchConfiguration("headless").perform(context).lower() in ("1", "true")
     operator_terminal = LaunchConfiguration("operator_terminal").perform(context)
+    use_dashboard = LaunchConfiguration("use_dashboard").perform(context)
+    open_dashboard = LaunchConfiguration("open_dashboard").perform(context)
     use_rviz = LaunchConfiguration("use_rviz").perform(context).lower() in ("1", "true")
     use_mapping = LaunchConfiguration("use_mapping").perform(context).lower() in (
         "1", "true"
@@ -337,7 +339,11 @@ def _launch_setup(context):
         period=11.0,
         actions=[IncludeLaunchDescription(
             PythonLaunchDescriptionSource(str(swarm_launch)),
-            launch_arguments={"operator_terminal": operator_terminal}.items(),
+            launch_arguments={
+                "operator_terminal": operator_terminal,
+                "use_dashboard": use_dashboard,
+                "open_dashboard": open_dashboard,
+            }.items(),
         )],
     ))
     return actions
@@ -398,7 +404,9 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument("world", default_value="test"),
         DeclareLaunchArgument("headless", default_value="false"),
-        DeclareLaunchArgument("operator_terminal", default_value="true"),
+        DeclareLaunchArgument("operator_terminal", default_value="false"),
+        DeclareLaunchArgument("use_dashboard", default_value="true"),
+        DeclareLaunchArgument("open_dashboard", default_value="true"),
         DeclareLaunchArgument("use_rviz", default_value="true"),
         DeclareLaunchArgument("use_mapping", default_value="true"),
         DeclareLaunchArgument("mapping_rate_hz", default_value="5.0"),

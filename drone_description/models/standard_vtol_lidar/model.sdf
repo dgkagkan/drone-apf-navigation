@@ -176,13 +176,13 @@
         <pose>0 0 0 0 0 0</pose>
         <topic>gimbal_camera</topic>
         <gz_frame_id>gimbal_pitch_link</gz_frame_id>
-        <update_rate>30</update_rate>
+        <update_rate>10</update_rate>
         <always_on>1</always_on>
         <visualize>true</visualize>
         <camera>
           <!-- ZOOM (static): smaller horizontal_fov = more zoom. 1.047 rad = 60 deg. -->
           <horizontal_fov>1.047</horizontal_fov>
-          <image><width>1280</width><height>720</height><format>R8G8B8</format></image>
+          <image><width>640</width><height>360</height><format>R8G8B8</format></image>
           <clip><near>0.05</near><far>500</far></clip>
         </camera>
       </sensor>

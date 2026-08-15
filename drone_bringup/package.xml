@@ -10,6 +10,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>drone_description</exec_depend>
+  <exec_depend>drone_dashboard</exec_depend>
   <exec_depend>drone_control</exec_depend>
   <exec_depend>drone_interfaces</exec_depend>
   <exec_depend>drone_navigation</exec_depend>

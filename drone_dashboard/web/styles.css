@@ -1,0 +1,117 @@
+:root {
+  color-scheme: dark;
+  --bg: #080d12;
+  --panel: rgba(18, 28, 36, 0.86);
+  --panel-strong: #111b23;
+  --line: rgba(157, 184, 200, 0.16);
+  --text: #ecf5f5;
+  --muted: #8fa4ae;
+  --cyan: #49d8d0;
+  --green: #57df8c;
+  --amber: #ffbd52;
+  --red: #ff6572;
+  --blue: #62a9ff;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-width: 1100px;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(42, 122, 133, .18), transparent 34rem),
+    radial-gradient(circle at 90% 8%, rgba(48, 86, 139, .17), transparent 30rem),
+    var(--bg);
+  color: var(--text);
+}
+
+button, input { font: inherit; }
+button { color: inherit; }
+.topbar {
+  height: 82px;
+  padding: 0 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  background: rgba(7, 12, 17, .75);
+  backdrop-filter: blur(14px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+h1, h2, p { margin: 0; }
+h1 { font-size: 23px; letter-spacing: -.03em; }
+h2 { font-size: 17px; letter-spacing: -.01em; }
+.eyebrow { color: var(--cyan); font-size: 10px; font-weight: 800; letter-spacing: .18em; margin-bottom: 3px; }
+.connection { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13px; }
+.connection span:first-child { width: 9px; height: 9px; border-radius: 99px; background: var(--amber); box-shadow: 0 0 15px var(--amber); }
+.connection.online span:first-child { background: var(--green); box-shadow: 0 0 15px var(--green); }
+.connection.offline span:first-child { background: var(--red); box-shadow: 0 0 15px var(--red); }
+main { padding: 22px 28px 60px; display: grid; gap: 18px; max-width: 1900px; margin: auto; }
+.panel { background: linear-gradient(145deg, rgba(20, 31, 40, .94), rgba(12, 20, 27, .91)); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 18px 50px rgba(0, 0, 0, .16); overflow: hidden; }
+.panel-heading { min-height: 68px; padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+.panel-heading > p { color: var(--muted); font-size: 12px; max-width: 55%; text-align: right; }
+.metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.metric { padding: 16px 18px; border-radius: 12px; background: rgba(16, 27, 35, .75); border: 1px solid var(--line); }
+.metric b { display: block; font-size: 25px; font-weight: 650; margin-top: 3px; }
+.metric span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.command-row, .mission-actions { display: flex; align-items: center; gap: 9px; padding: 14px 18px; flex-wrap: wrap; }
+.command-row label { margin-left: auto; color: var(--muted); font-size: 12px; }
+input[type="number"] { width: 92px; border: 1px solid var(--line); border-radius: 7px; color: var(--text); background: #0b141b; padding: 9px; outline: none; }
+input:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px rgba(73, 216, 208, .12); }
+.button, .icon-button { border: 1px solid rgba(151, 183, 198, .24); border-radius: 7px; background: #192832; padding: 9px 14px; font-size: 11px; font-weight: 800; letter-spacing: .04em; cursor: pointer; transition: .15s ease; }
+.button:hover, .icon-button:hover { transform: translateY(-1px); border-color: rgba(196, 226, 237, .48); filter: brightness(1.12); }
+.button:disabled { opacity: .45; cursor: wait; transform: none; }
+.button.primary { background: #167e7a; border-color: #36bcb5; }
+.button.arm { background: #267848; border-color: #48bc73; }
+.button.danger { background: #752d38; border-color: #bd4d5c; }
+.button.ghost { background: transparent; }
+.workspace { display: grid; grid-template-columns: minmax(700px, 1fr) 330px; gap: 18px; }
+.map-wrap { height: 570px; position: relative; background: #091219; overflow: hidden; }
+#map { display: block; width: 100%; height: 100%; cursor: crosshair; }
+.map-help, .map-coordinates { position: absolute; bottom: 12px; color: var(--muted); font-size: 11px; background: rgba(4, 9, 13, .78); border: 1px solid var(--line); padding: 6px 9px; border-radius: 6px; pointer-events: none; }
+.map-help { left: 12px; }
+.map-coordinates { right: 12px; color: var(--cyan); }
+.map-tools { display: flex; gap: 5px; }
+.icon-button { width: 33px; height: 33px; padding: 0; font-size: 18px; }
+.target-form { display: grid; grid-template-columns: repeat(4, minmax(100px, 1fr)) 120px 140px; align-items: end; gap: 10px; padding: 14px 18px 5px; }
+.target-form label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+.target-form input[type="number"] { width: 100%; display: block; margin-top: 5px; }
+.target-form .check { height: 36px; display: flex; align-items: center; gap: 7px; text-transform: none; letter-spacing: 0; }
+.mission-actions { padding-top: 10px; }
+.target-list { padding: 10px; max-height: 688px; overflow: auto; }
+.target-list.empty { color: var(--muted); padding: 24px 18px; font-size: 13px; }
+.target-item { display: grid; grid-template-columns: 38px 1fr 28px; gap: 9px; align-items: center; padding: 10px; border-bottom: 1px solid var(--line); }
+.target-id { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: #061014; background: var(--amber); font-size: 11px; font-weight: 900; }
+.target-item b { display: block; font-size: 12px; }
+.target-item small { color: var(--muted); font-size: 10px; }
+.delete-target { border: 0; background: transparent; color: var(--red); font-size: 18px; cursor: pointer; }
+.drone-grid { padding: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.drone-card { border: 1px solid var(--line); background: rgba(8, 16, 22, .58); border-radius: 10px; padding: 13px; }
+.drone-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 11px; }
+.drone-title h3 { margin: 0; font-size: 14px; }
+.badge { border-radius: 999px; padding: 4px 8px; font-size: 9px; font-weight: 800; text-transform: uppercase; background: rgba(255, 101, 114, .15); color: var(--red); }
+.badge.online { background: rgba(87, 223, 140, .13); color: var(--green); }
+.drone-position { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 11px; }
+.drone-position div { background: rgba(35, 54, 65, .45); border-radius: 6px; padding: 7px; font-size: 11px; }
+.drone-position span { color: var(--muted); margin-right: 3px; }
+.drone-flags { min-height: 34px; display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 9px; }
+.flag { font-size: 9px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; }
+.flag.on { color: var(--cyan); border-color: rgba(73,216,208,.35); }
+.drone-actions { display: flex; gap: 6px; }
+.drone-actions .button { flex: 1; padding: 7px 5px; }
+.apf-line { color: var(--muted); font-size: 10px; margin: 8px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.camera-grid { padding: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; }
+.camera { aspect-ratio: 16 / 9; background: #030608; position: relative; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.camera img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.camera-label { position: absolute; top: 9px; left: 9px; background: rgba(0,0,0,.72); padding: 5px 8px; border-radius: 5px; font-size: 10px; font-weight: 800; }
+.camera-empty { display: grid; place-items: center; color: var(--muted); min-height: 180px; }
+.toast { position: fixed; right: 22px; bottom: 22px; max-width: 420px; background: #153129; border: 1px solid #3b8c6a; border-radius: 9px; padding: 12px 15px; transform: translateY(120px); opacity: 0; transition: .25s ease; z-index: 50; font-size: 13px; }
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.error { background: #3a1d23; border-color: #a94655; }
+
+@media (max-width: 1250px) {
+  .workspace { grid-template-columns: 1fr 290px; }
+  .target-form { grid-template-columns: repeat(3, 1fr); }
+}

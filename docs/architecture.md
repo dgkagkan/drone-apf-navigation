@@ -27,6 +27,8 @@ route_executor -> /swarm/mission_feedback -> swarm_coordinator
   goal validation/action handling, and passive RViz visualization.
 - `drone_swarm`: buffered target submission, dynamic healthy-drone snapshots,
   multi-drone route optimization, and asynchronous per-drone route dispatch.
+- `drone_dashboard`: PC-local HTTP control panel, mission map, fleet state,
+  APF/path overlays, and compressed camera previews.
 - `drone_bringup`: launch composition and simulation configuration.
 - `apf_optuna`: trial orchestration and scoring using the same modular APF path.
 
@@ -149,6 +151,53 @@ so each calculation can use a different healthy subset of the swarm.
 Start each namespaced controller stack with `navigation_client_terminal:=false`
 so the coordinator remains the only navigation-goal owner.
 
+### Local web dashboard
+
+`swarm_sim.launch.py` starts the dashboard by default and opens
+`http://127.0.0.1:8765`. The browser never commands PX4 directly. Its typed HTTP
+requests are translated to the existing ROS services/actions, while
+`swarm_coordinator_node` remains the owner of pending targets, active targets,
+routes, cancellation, and return-home state.
+
+The map uses local ENU coordinates and works without internet map tiles. Click
+to fill a target's east/north coordinates, choose altitude, speed, and VTOL
+mode, then press `ADD TARGET`. Targets stay pending until `CALCULATE` or
+`RECALCULATE`. The dashboard also supports one-target removal, clear pending,
+mission cancel, swarm or per-drone arm/takeoff/home, dynamic drone cards, route
+progress, nominal/flown paths, and APF vectors.
+
+`HOME ALL` or a per-drone `HOME` replaces the current coordinated mission.
+Unfinished mission targets return to the pending buffer before the selected
+return-home route is broadcast, so no old route continues outside coordinator
+ownership.
+
+Gazebo camera images are bridged only on the simulation PC. The simulated
+camera is configured as 640x360 at 10 Hz, and the dashboard serves JPEG previews
+at up to 5 Hz. DDS sends image samples only to matched subscribers, so a remote
+Raspberry Pi brain does not receive camera traffic unless a camera subscriber
+is deliberately started there.
+
+Useful launch options:
+
+```bash
+# Default: dashboard enabled, browser opens automatically, terminal disabled.
+ros2 launch drone_bringup swarm_sim.launch.py
+
+# Do not open a browser (the dashboard server still runs).
+ros2 launch drone_bringup swarm_sim.launch.py open_dashboard:=false
+
+# Restore the old operator terminal alongside the dashboard.
+ros2 launch drone_bringup swarm_sim.launch.py operator_terminal:=true
+
+# Start only coordinator/dashboard, without Gazebo.
+ros2 launch drone_bringup swarm.launch.py open_dashboard:=false
+```
+
+The dashboard binds to loopback by default. To view it from another trusted
+machine on the direct Ethernet network, explicitly set `dashboard_host:=0.0.0.0`
+in `swarm.launch.py` and open `http://<pc-ethernet-ip>:8765`. There is no login
+layer, so it must not be exposed to an untrusted network.
+
 `drone_bringup/launch/drone_brain.launch.py` starts one complete ROS brain
 without Gazebo, PX4 SITL, RViz, or a coordinator. It is the launch used on a
 Raspberry Pi or other onboard computer. In simulation,
@@ -206,6 +255,9 @@ single-job compilation to keep Raspberry Pi memory use bounded. The resulting
 install contains the existing `drone_brain.launch.py`; its runtime ROS graph and
 swarm protocol are unchanged. Manual control and gimbal control are disabled by
 default for this headless brain but can still be enabled in a normal full build.
+The small pure-Python dashboard package is included only to keep
+`drone_bringup` dependency metadata complete; `drone_brain.launch.py` never
+starts it and the Pi does not subscribe to camera images.
 
 ## Three-drone simulation
 
@@ -220,7 +272,7 @@ keeps each autopilot path independent:
 
 ```bash
 colcon build --packages-select drone_interfaces drone_description \
-  drone_control drone_navigation drone_swarm drone_bringup
+  drone_control drone_navigation drone_swarm drone_dashboard drone_bringup
 source install/setup.bash
 ros2 launch drone_bringup swarm_sim.launch.py
 ```
@@ -229,7 +281,7 @@ The default swarm world is `test`, containing the tiled grass ground and the
 90 distributed obstacles. Use `world:=optuna_course` when the optimization
 course is needed.
 
-Use `headless:=true operator_terminal:=false` for a non-GUI smoke test. The
+Use `headless:=true use_rviz:=false open_dashboard:=false` for a non-GUI smoke test. The
 launch forces ROS 2, Fast DDS, Gazebo Transport, and all PX4-to-agent links onto
 the loopback interface. The physical Ethernet and Wi-Fi interfaces are not used.
 

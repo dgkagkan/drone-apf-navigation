@@ -1,0 +1,5 @@
+uint64 target_id
+---
+bool removed
+uint32 pending_target_count
+string message

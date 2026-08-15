@@ -34,6 +34,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ValidateGoal.srv"
   "srv/AddSwarmTarget.srv"
   "srv/RegisterSwarmDrone.srv"
+  "srv/RemoveSwarmTarget.srv"
   "srv/SwarmCommand.srv"
   "action/Land.action"
   "action/NavigateTo.action"

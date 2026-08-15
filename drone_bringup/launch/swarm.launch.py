@@ -6,16 +6,26 @@ keeps only its own route, and feeds the existing namespaced NavigateTo action.
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess
-from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, TextSubstitution
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction
+from launch.conditions import IfCondition
+from launch.substitutions import (
+    LaunchConfiguration,
+    PathJoinSubstitution,
+    PythonExpression,
+    TextSubstitution,
+)
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
     config_file = LaunchConfiguration("config_file")
     operator_terminal = LaunchConfiguration("operator_terminal")
+    use_dashboard = LaunchConfiguration("use_dashboard")
+    open_dashboard = LaunchConfiguration("open_dashboard")
+    dashboard_host = LaunchConfiguration("dashboard_host")
+    dashboard_port = LaunchConfiguration("dashboard_port")
     default_config = PathJoinSubstitution([
         FindPackageShare("drone_swarm"), "config", "swarm.yaml"
     ])
@@ -30,6 +40,10 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("config_file", default_value=default_config),
         DeclareLaunchArgument("operator_terminal", default_value="true"),
+        DeclareLaunchArgument("use_dashboard", default_value="true"),
+        DeclareLaunchArgument("open_dashboard", default_value="true"),
+        DeclareLaunchArgument("dashboard_host", default_value="127.0.0.1"),
+        DeclareLaunchArgument("dashboard_port", default_value="8765"),
         Node(
             package="drone_swarm",
             executable="swarm_coordinator_node",
@@ -42,6 +56,28 @@ def generate_launch_description():
             executable="swarm_visualization_node",
             name="swarm_visualization",
             output="screen",
+        ),
+        Node(
+            package="drone_dashboard",
+            executable="dashboard_node",
+            name="swarm_dashboard",
+            output="screen",
+            parameters=[{
+                "host": dashboard_host,
+                "port": ParameterValue(dashboard_port, value_type=int),
+            }],
+            condition=IfCondition(use_dashboard),
+        ),
+        TimerAction(
+            period=2.0,
+            actions=[ExecuteProcess(
+                cmd=["xdg-open", ["http://", dashboard_host, ":", dashboard_port]],
+                output="log",
+                name="open_swarm_dashboard",
+                condition=IfCondition(PythonExpression([
+                    "'", use_dashboard, "' == 'true' and '", open_dashboard, "' == 'true'"
+                ])),
+            )],
         ),
         ExecuteProcess(
             cmd=[
@@ -56,13 +92,5 @@ def generate_launch_description():
             output="screen",
             name="swarm_operator_terminal",
             condition=IfCondition(operator_terminal),
-        ),
-        Node(
-            package="drone_swarm",
-            executable="swarm_operator_node",
-            name="swarm_operator",
-            output="screen",
-            parameters=[config_file],
-            condition=UnlessCondition(operator_terminal),
         ),
     ])

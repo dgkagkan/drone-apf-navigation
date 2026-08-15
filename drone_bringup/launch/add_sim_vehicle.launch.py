@@ -62,6 +62,7 @@ def _bridge_config(drone_id):
         ("scan_3d/points", "sensor_msgs/msg/PointCloud2", "gz.msgs.PointCloudPacked", "GZ_TO_ROS"),
         ("lidar_down/points", "sensor_msgs/msg/PointCloud2", "gz.msgs.PointCloudPacked", "GZ_TO_ROS"),
         ("ground_truth/odometry", "nav_msgs/msg/Odometry", "gz.msgs.Odometry", "GZ_TO_ROS"),
+        ("gimbal_camera", "sensor_msgs/msg/Image", "gz.msgs.Image", "GZ_TO_ROS"),
         ("gimbal/cmd_pan", "std_msgs/msg/Float64", "gz.msgs.Double", "ROS_TO_GZ"),
         ("gimbal/cmd_tilt", "std_msgs/msg/Float64", "gz.msgs.Double", "ROS_TO_GZ"),
         ("gimbal/cmd_roll", "std_msgs/msg/Float64", "gz.msgs.Double", "ROS_TO_GZ"),

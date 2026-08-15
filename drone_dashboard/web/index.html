@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Swarm Control</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">VTOL APF SWARM</p>
+      <h1>Mission Control</h1>
+    </div>
+    <div class="connection"><span id="connection-dot"></span><span id="connection-text">Connecting</span></div>
+  </header>
+
+  <main>
+    <section class="metrics" id="metrics"></section>
+
+    <section class="command-deck panel">
+      <div class="panel-heading">
+        <div><p class="eyebrow">FLIGHT</p><h2>Swarm commands</h2></div>
+        <p id="status-message">Waiting for coordinator</p>
+      </div>
+      <div class="command-row">
+        <button class="button arm" data-all="arm">ARM ALL</button>
+        <button class="button primary" data-all="takeoff">TAKEOFF ALL</button>
+        <button class="button" data-command="home">HOME ALL</button>
+        <button class="button danger" data-command="cancel">CANCEL MISSION</button>
+        <label>Takeoff altitude <input id="takeoff-altitude" type="number" value="15" min="2" max="100" step="1"> m</label>
+      </div>
+    </section>
+
+    <div class="workspace">
+      <section class="map-panel panel">
+        <div class="panel-heading">
+          <div><p class="eyebrow">MISSION</p><h2>Interactive map</h2></div>
+          <div class="map-tools">
+            <button class="icon-button" id="zoom-out" title="Zoom out">−</button>
+            <button class="icon-button" id="map-center" title="Fit mission">⌾</button>
+            <button class="icon-button" id="zoom-in" title="Zoom in">+</button>
+          </div>
+        </div>
+        <div class="map-wrap">
+          <canvas id="map"></canvas>
+          <div class="map-help">Click to place target · drag to pan · wheel to zoom</div>
+          <div class="map-coordinates" id="map-coordinates">E 0.0 · N 0.0</div>
+        </div>
+        <div class="target-form">
+          <label>X / East<input id="target-x" type="number" step="0.1" value="0"></label>
+          <label>Y / North<input id="target-y" type="number" step="0.1" value="0"></label>
+          <label>Z / Altitude<input id="target-z" type="number" step="0.5" value="15"></label>
+          <label>Speed<input id="target-speed" type="number" step="1" value="20" min="0.1"></label>
+          <label class="check"><input id="target-fixed-wing" type="checkbox" checked> Fixed wing</label>
+          <button class="button primary" id="add-target">ADD TARGET</button>
+        </div>
+        <div class="mission-actions">
+          <button class="button primary" data-command="calculate">CALCULATE</button>
+          <button class="button" data-command="recalculate">RECALCULATE</button>
+          <button class="button danger ghost" data-command="clear">CLEAR PENDING</button>
+        </div>
+      </section>
+
+      <aside class="target-panel panel">
+        <div class="panel-heading"><div><p class="eyebrow">BUFFER</p><h2>Targets</h2></div></div>
+        <div id="target-list" class="target-list empty">No pending targets</div>
+      </aside>
+    </div>
+
+    <section class="panel">
+      <div class="panel-heading"><div><p class="eyebrow">FLEET</p><h2>Dynamic drones</h2></div></div>
+      <div id="drone-grid" class="drone-grid"></div>
+    </section>
+
+    <section class="panel cameras-panel">
+      <div class="panel-heading">
+        <div><p class="eyebrow">OPTICS</p><h2>Live cameras</h2></div>
+        <p>PC-local compressed preview</p>
+      </div>
+      <div id="camera-grid" class="camera-grid"></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
