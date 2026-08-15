@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.8)
 project(drone_interfaces)
 
+option(
+  DRONE_ONBOARD_BUILD
+  "Keep the complete shared interface set in the onboard profile"
+  OFF)
+
+# PC and onboard computers generate the same interfaces so their wire-level
+# APIs remain identical. Declaring the shared profile flag here also keeps a
+# workspace-wide -DDRONE_ONBOARD_BUILD argument warning-free.
+
 find_package(ament_cmake REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)

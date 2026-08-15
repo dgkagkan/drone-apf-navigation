@@ -184,6 +184,29 @@ The LAN launch profiles explicitly allow only `lo` plus `enp12s0` on the PC and
 interface. If either Ethernet interface is renamed, update the matching
 `fastdds_ethernet_pc.xml` or `fastdds_ethernet_pi.xml` file.
 
+### Raspberry Pi onboard build
+
+The normal build remains the full PC build. On a Raspberry Pi, use the dedicated
+onboard profile so CMake omits the coordinator, operator, route solvers,
+simulation cloud throttle, terminal navigation client, automated mission,
+manual control, and gimbal control executables. APF visualization remains in the
+onboard profile because the PC swarm visualizer aggregates the namespaced arrows
+and paths produced by each drone.
+
+```bash
+cd ~/ros2_ws/src/drone-apf-navigation
+./scripts/build_drone_brain.sh
+source ~/ros2_ws/install/onboard/setup.bash
+```
+
+The script restricts package discovery to this repository, which avoids package
+name collisions with stale package copies elsewhere in `src`. It uses separate
+`build/onboard` and `install/onboard` directories and forces sequential,
+single-job compilation to keep Raspberry Pi memory use bounded. The resulting
+install contains the existing `drone_brain.launch.py`; its runtime ROS graph and
+swarm protocol are unchanged. Manual control and gimbal control are disabled by
+default for this headless brain but can still be enabled in a normal full build.
+
 ## Three-drone simulation
 
 The complete local swarm simulation uses one custom VTOL model per vehicle and

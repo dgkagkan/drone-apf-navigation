@@ -97,6 +97,16 @@ def generate_launch_description():
             ),
         ),
         DeclareLaunchArgument("publish_robot_description", default_value="true"),
+        DeclareLaunchArgument(
+            "manual_control_enabled",
+            default_value="false",
+            description="Enable the remote /joy path (requires a full build).",
+        ),
+        DeclareLaunchArgument(
+            "gimbal_control_enabled",
+            default_value="false",
+            description="Enable joystick gimbal control (requires a full build).",
+        ),
         DeclareLaunchArgument("visualization_enabled", default_value="true"),
         DeclareLaunchArgument(
             "lidar_points_topic",
@@ -116,6 +126,12 @@ def generate_launch_description():
                 "map_origin_north_m": LaunchConfiguration("map_origin_north_m"),
                 "map_origin_up_m": LaunchConfiguration("map_origin_up_m"),
                 "use_local_joy": "false",
+                "manual_control_enabled": LaunchConfiguration(
+                    "manual_control_enabled"
+                ),
+                "gimbal_control_enabled": LaunchConfiguration(
+                    "gimbal_control_enabled"
+                ),
                 "visualization_enabled": LaunchConfiguration("visualization_enabled"),
                 "navigation_client_terminal": "false",
                 "swarm_member_enabled": "true",

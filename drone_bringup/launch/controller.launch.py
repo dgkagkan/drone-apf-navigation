@@ -11,6 +11,8 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     device_id = LaunchConfiguration("device_id")
     use_local_joy = LaunchConfiguration("use_local_joy")
+    manual_control_enabled = LaunchConfiguration("manual_control_enabled")
+    gimbal_control_enabled = LaunchConfiguration("gimbal_control_enabled")
     visualization_enabled = LaunchConfiguration("visualization_enabled")
     navigation_client_terminal = LaunchConfiguration("navigation_client_terminal")
     swarm_member_enabled = LaunchConfiguration("swarm_member_enabled")
@@ -114,6 +116,8 @@ def generate_launch_description():
             default_value="true",
             description="false receives /joy from a remote ROS 2 computer.",
         ),
+        DeclareLaunchArgument("manual_control_enabled", default_value="true"),
+        DeclareLaunchArgument("gimbal_control_enabled", default_value="true"),
         DeclareLaunchArgument("visualization_enabled", default_value="true"),
         DeclareLaunchArgument("navigation_client_terminal", default_value="true"),
         DeclareLaunchArgument("swarm_member_enabled", default_value="false"),
@@ -173,6 +177,7 @@ def generate_launch_description():
             name="manual_control",
             namespace=drone_namespace,
             output="screen",
+            condition=IfCondition(manual_control_enabled),
             parameters=shared_parameters,
             remappings=namespaced_remappings,
         ),
@@ -182,6 +187,7 @@ def generate_launch_description():
             name="gimbal_control",
             namespace=drone_namespace,
             output="screen",
+            condition=IfCondition(gimbal_control_enabled),
             parameters=shared_parameters,
             remappings=namespaced_remappings,
         ),

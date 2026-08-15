@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.8)
 project(drone_navigation)
 
+option(
+  DRONE_ONBOARD_BUILD
+  "Build only the navigation executables used by drone_brain.launch.py"
+  OFF)
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -52,10 +57,6 @@ target_compile_features(lidar_processor_node PRIVATE cxx_std_17)
 ament_target_dependencies(lidar_processor_node
   geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
 
-add_executable(point_cloud_throttle_node src/point_cloud_throttle_node.cpp)
-target_compile_features(point_cloud_throttle_node PRIVATE cxx_std_17)
-ament_target_dependencies(point_cloud_throttle_node rclcpp sensor_msgs)
-
 add_executable(route_executor_node src/route_executor_node.cpp)
 target_compile_features(route_executor_node PRIVATE cxx_std_17)
 ament_target_dependencies(route_executor_node
@@ -66,22 +67,33 @@ target_compile_features(navigation_server_node PRIVATE cxx_std_17)
 ament_target_dependencies(navigation_server_node
   drone_interfaces geometry_msgs rclcpp rclcpp_action std_msgs)
 
-add_executable(navigation_client_node src/navigation_client_node.cpp)
-target_compile_features(navigation_client_node PRIVATE cxx_std_17)
-ament_target_dependencies(navigation_client_node
-  drone_interfaces rclcpp rclcpp_action std_srvs)
-
-install(TARGETS
+set(drone_navigation_targets
   apf_solver
   nominal_path_planner
   apf_safety_node
   apf_visualizer_node
   command_mux_node
   lidar_processor_node
-  point_cloud_throttle_node
   route_executor_node
-  navigation_client_node
-  navigation_server_node
+  navigation_server_node)
+
+if(NOT DRONE_ONBOARD_BUILD)
+  add_executable(point_cloud_throttle_node src/point_cloud_throttle_node.cpp)
+  target_compile_features(point_cloud_throttle_node PRIVATE cxx_std_17)
+  ament_target_dependencies(point_cloud_throttle_node rclcpp sensor_msgs)
+
+  add_executable(navigation_client_node src/navigation_client_node.cpp)
+  target_compile_features(navigation_client_node PRIVATE cxx_std_17)
+  ament_target_dependencies(navigation_client_node
+    drone_interfaces rclcpp rclcpp_action std_srvs)
+
+  list(APPEND drone_navigation_targets
+    point_cloud_throttle_node
+    navigation_client_node)
+endif()
+
+install(TARGETS
+  ${drone_navigation_targets}
   EXPORT export_apf_solver
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
