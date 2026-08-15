@@ -17,7 +17,7 @@ import numpy as np
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from drone_interfaces.action import Takeoff
-from drone_interfaces.msg import ApfTelemetry, SwarmAssignment, SwarmState
+from drone_interfaces.msg import ApfTelemetry, SwarmAssignment, SwarmState, VehicleState
 from drone_interfaces.srv import (
     AddSwarmTarget,
     Arm,
@@ -93,6 +93,7 @@ class DashboardNode(Node):
         self._drone_clients = {}
         self._sensor_subscriptions = {}
         self._telemetry = {}
+        self._motion = {}
         self._paths = {}
         self._camera_frames = {}
         self._last_camera_encode = {}
@@ -175,6 +176,7 @@ class DashboardNode(Node):
         with self._lock:
             snapshot = json.loads(json.dumps(self._state))
             snapshot["telemetry"] = json.loads(json.dumps(self._telemetry))
+            snapshot["motion"] = json.loads(json.dumps(self._motion))
             snapshot["paths"] = json.loads(json.dumps(self._paths))
             snapshot["camera_drones"] = sorted(self._camera_frames)
         return snapshot
@@ -242,6 +244,15 @@ class DashboardNode(Node):
                 ApfTelemetry,
                 normalized + "/apf/telemetry",
                 lambda message, current_id=drone_id: self._on_telemetry(current_id, message),
+                sensor_qos,
+                callback_group=self._callback_group,
+            ),
+            self.create_subscription(
+                VehicleState,
+                normalized + "/vehicle/state",
+                lambda message, current_id=drone_id: self._on_vehicle_state(
+                    current_id, message
+                ),
                 sensor_qos,
                 callback_group=self._callback_group,
             ),
@@ -319,6 +330,14 @@ class DashboardNode(Node):
         }
         with self._lock:
             self._telemetry[drone_id] = telemetry
+
+    def _on_vehicle_state(self, drone_id: str, message: VehicleState):
+        motion = {
+            "velocity": self._vector_dict(message.velocity_enu),
+            "speed_m_s": self._speed_m_s(message.velocity_enu),
+        }
+        with self._lock:
+            self._motion[drone_id] = motion
 
     def _on_path(self, drone_id: str, path_kind: str, message: NavigationPath):
         points = [self._point_dict(pose.pose.position) for pose in message.poses[-1000:]]
@@ -467,6 +486,14 @@ class DashboardNode(Node):
     @classmethod
     def _vector_dict(cls, vector):
         return {"x": float(vector.x), "y": float(vector.y), "z": float(vector.z)}
+
+    @staticmethod
+    def _speed_m_s(velocity):
+        return math.sqrt(
+            velocity.x * velocity.x
+            + velocity.y * velocity.y
+            + velocity.z * velocity.z
+        )
 
     @classmethod
     def _target_dict(cls, target):

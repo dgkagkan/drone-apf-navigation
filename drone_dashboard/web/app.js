@@ -106,10 +106,12 @@ function renderDrones() {
   grid.innerHTML = state.drones.map(drone => {
     const p = drone.position;
     const telemetry = state.telemetry[drone.drone_id];
+    const speed = state.motion[drone.drone_id]?.speed_m_s;
     const obstacle = telemetry?.nearest_obstacle_m;
     return `<article class="drone-card" style="border-top:2px solid ${droneColor(drone.drone_id)}">
       <div class="drone-title"><h3>${drone.drone_id}</h3><span class="badge ${drone.connected ? "online" : ""}">${drone.connected ? "connected" : "offline"}</span></div>
       <div class="drone-position"><div><span>X</span>${p.x.toFixed(1)}</div><div><span>Y</span>${p.y.toFixed(1)}</div><div><span>Z</span>${p.z.toFixed(1)}</div></div>
+      <div class="speed-line"><span>SPEED</span><b>${speed == null ? "—" : speed.toFixed(1)} m/s</b></div>
       <div class="drone-flags">
         <span class="flag ${drone.armed ? "on" : ""}">${drone.armed ? "ARMED" : "DISARMED"}</span>
         <span class="flag ${drone.offboard ? "on" : ""}">${drone.offboard ? "OFFBOARD" : "MANUAL"}</span>
@@ -245,7 +247,9 @@ function drawDrone(drone) {
   const color = drone.connected ? droneColor(drone.drone_id) : "#59636a";
   context.save(); context.translate(p.x, p.y); context.fillStyle = color; context.strokeStyle = "#071014"; context.lineWidth = 2;
   context.beginPath(); context.moveTo(0, -11); context.lineTo(9, 9); context.lineTo(0, 5); context.lineTo(-9, 9); context.closePath(); context.fill(); context.stroke(); context.restore();
-  context.fillStyle = color; context.font = "bold 10px sans-serif"; context.textAlign = "left"; context.fillText(`${drone.drone_id}  ${drone.position.z.toFixed(1)}m`, p.x + 12, p.y - 8);
+  const speed = state.motion[drone.drone_id]?.speed_m_s;
+  const speedLabel = speed == null ? "—" : `${speed.toFixed(1)}m/s`;
+  context.fillStyle = color; context.font = "bold 10px sans-serif"; context.textAlign = "left"; context.fillText(`${drone.drone_id}  ${drone.position.z.toFixed(1)}m  ${speedLabel}`, p.x + 12, p.y - 8);
   const telemetry = state.telemetry[drone.drone_id];
   if (telemetry) {
     drawVector(drone.position, telemetry.attractive, "#57df8c");

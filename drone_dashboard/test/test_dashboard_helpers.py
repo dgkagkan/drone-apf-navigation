@@ -1,5 +1,6 @@
 import math
 
+from geometry_msgs.msg import Vector3
 from sensor_msgs.msg import Image
 
 from drone_dashboard.dashboard_node import DashboardNode
@@ -24,3 +25,9 @@ def test_non_finite_ros_values_become_json_null_values():
     assert DashboardNode._finite(12.5) == 12.5
     assert DashboardNode._finite(math.nan) is None
     assert DashboardNode._finite(math.inf) is None
+
+
+def test_speed_uses_all_three_velocity_axes():
+    velocity = Vector3(x=3.0, y=4.0, z=12.0)
+
+    assert DashboardNode._speed_m_s(velocity) == 13.0
