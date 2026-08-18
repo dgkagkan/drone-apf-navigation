@@ -4,7 +4,7 @@ manual_control:
     mc_climb_speed: 2.0
     mc_yaw_rate_deg: 60.0
     fw_speed_min: 10.0
-    fw_speed_cruise: 20.0
+    fw_speed_cruise: 15.0
     fw_speed_max: 20.0
     fw_turn_rate_deg: 25.0
     fw_climb_speed: 4.0
@@ -55,7 +55,7 @@ automated_mission:
     mc_speed: 4.0
     mc_climb_speed: 2.0
     fw_speed_min: 10.0
-    fw_speed_cruise: 20.0
+    fw_speed_cruise: 15.0
     fw_speed_max: 20.0
     avoidance_enabled: true
     obstacle_timeout_s: 0.5
@@ -70,7 +70,9 @@ lidar_processor:
     output_topic: /perception/obstacles
     output_frame: map
     min_range_m: 0.3
-    max_range_m: 78.0
+    max_range_m: 70.0
+    commanded_range.min_m: 70.0
+    commanded_range.max_m: 300.0
     ground_height_m: 0.4
     voxel_size_m: 0.2
 
@@ -79,8 +81,8 @@ apf_safety:
     avoidance_enabled: true
     command_timeout_s: 0.5
     obstacle_timeout_s: 0.5
-    obstacle_influence_radius: 77.96063615194443
-    fw_avoid_trigger_dist: 73.5424773407324
+    obstacle_influence_radius: 70.0
+    fw_avoid_trigger_dist: 60.0
     mc_trail_half_width: 2.5
     fw_trail_half_width: 11.66155241746725
     lidar_vertical_half_fov_deg: 15.0
@@ -104,7 +106,7 @@ navigation_server:
     goal_tolerance_m: 25.0
     altitude_tolerance_m: 2.0
     goal_chain_grace_period_s: 0.25
-    default_speed_m_s: 20.0
+    default_speed_m_s: 15.0
     max_speed_m_s: 20.0
     altitude_gain: 0.8
     max_vertical_speed_m_s: 3.0
@@ -112,7 +114,7 @@ navigation_server:
 
 navigation_client:
   ros__parameters:
-    cruise_speed_m_s: 20.0
+    cruise_speed_m_s: 15.0
     feedback_period_s: 0.5
     takeoff_altitude_m: 15.0
     takeoff_climb_speed_m_s: 2.0

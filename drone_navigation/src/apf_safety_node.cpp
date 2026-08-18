@@ -17,6 +17,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
+#include <std_msgs/msg/float64.hpp>
 #include <std_srvs/srv/set_bool.hpp>
 
 #include "drone_navigation/apf_solver.hpp"
@@ -55,7 +56,8 @@ public:
         active_mode_.c_str());
       active_mode_ = "normal";
     }
-    solver_.setParameters(profiles_.at(active_mode_));
+    active_lidar_range_m_ = profiles_.at(active_mode_).obstacle_influence_radius_m;
+    applyActiveParameters();
 
     selected_sub_ = create_subscription<MotionCommand>(
       "/motion/selected_intent", 10, std::bind(&ApfSafetyNode::onCommand, this, _1));
@@ -64,6 +66,10 @@ public:
     obstacle_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
       "/perception/obstacles", rclcpp::SensorDataQoS().keep_last(1),
       std::bind(&ApfSafetyNode::onObstacles, this, _1));
+    lidar_range_sub_ = create_subscription<std_msgs::msg::Float64>(
+      "/perception/lidar_range_override",
+      rclcpp::QoS(1).reliable().transient_local(),
+      std::bind(&ApfSafetyNode::onLidarRange, this, _1));
     enabled_service_ = create_service<SetBool>(
       "/apf/set_enabled", std::bind(&ApfSafetyNode::setEnabled, this, _1, _2));
     mode_service_ = create_service<SetApfMode>(
@@ -116,8 +122,8 @@ private:
       return;
     }
 
-    solver_.setParameters(profile->second);
     active_mode_ = requested_mode;
+    applyActiveParameters();
     response->accepted = true;
     response->active_mode = active_mode_;
     response->message = "APF mode changed to '" + active_mode_ + "'";
@@ -130,9 +136,9 @@ private:
     constexpr double degrees_to_radians = 0.017453292519943295;
     ApfParameters parameters;
     parameters.obstacle_influence_radius_m =
-      declare_parameter<double>("obstacle_influence_radius", 77.96063615194443);
+      declare_parameter<double>("obstacle_influence_radius", 70.0);
     parameters.fw_avoid_trigger_distance_m =
-      declare_parameter<double>("fw_avoid_trigger_dist", 73.5424773407324);
+      declare_parameter<double>("fw_avoid_trigger_dist", 60.0);
     parameters.mc_corridor_half_width_m =
       declare_parameter<double>("mc_trail_half_width", 2.5);
     parameters.fw_corridor_half_width_m =
@@ -161,6 +167,33 @@ private:
     parameters.clear_hold_time_s =
       declare_parameter<double>("avoidance_clear_hold_time", 2.0);
     return parameters;
+  }
+
+  void applyActiveParameters()
+  {
+    auto parameters = profiles_.at(active_mode_);
+    parameters.obstacle_influence_radius_m = active_lidar_range_m_;
+    parameters.fw_avoid_trigger_distance_m = std::max(1.0, active_lidar_range_m_ - 10.0);
+    solver_.setParameters(parameters);
+  }
+
+  void onLidarRange(const std_msgs::msg::Float64::SharedPtr message)
+  {
+    constexpr double min_range_m = 70.0;
+    constexpr double max_range_m = 300.0;
+    if (!std::isfinite(message->data) || message->data < min_range_m ||
+      message->data > max_range_m)
+    {
+      RCLCPP_WARN(
+        get_logger(), "Rejected APF LiDAR range %.1f m; expected %.1f-%.1f m",
+        message->data, min_range_m, max_range_m);
+      return;
+    }
+    active_lidar_range_m_ = message->data;
+    applyActiveParameters();
+    RCLCPP_INFO(
+      get_logger(), "APF influence range set to %.1f m (FW trigger %.1f m)",
+      active_lidar_range_m_, active_lidar_range_m_ - 10.0);
   }
 
   ApfParameters readProfileParameters(
@@ -351,6 +384,7 @@ private:
   std::string active_mode_ {"normal"};
   double command_timeout_s_ {0.5};
   double obstacle_timeout_s_ {0.5};
+  double active_lidar_range_m_ {70.0};
   bool avoidance_enabled_ {true};
   std::mutex mutex_;
   MotionCommand command_;
@@ -364,6 +398,7 @@ private:
   rclcpp::Subscription<MotionCommand>::SharedPtr selected_sub_;
   rclcpp::Subscription<VehicleState>::SharedPtr state_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr lidar_range_sub_;
   rclcpp::Service<SetBool>::SharedPtr enabled_service_;
   rclcpp::Service<SetApfMode>::SharedPtr mode_service_;
   rclcpp::Publisher<MotionCommand>::SharedPtr safe_pub_;

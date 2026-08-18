@@ -4,7 +4,7 @@
     <transport_descriptor>
       <transport_id>pi_ethernet_udp</transport_id>
       <type>UDPv4</type>
-      <maxInitialPeersRange>120</maxInitialPeersRange>
+      <maxInitialPeersRange>64</maxInitialPeersRange>
       <interfaceWhiteList>
         <interface>lo</interface>
         <interface>eth0</interface>
@@ -13,6 +13,15 @@
   </transport_descriptors>
   <participant profile_name="pi_ethernet_participant" is_default_profile="true">
     <rtps>
+      <builtin>
+        <initialPeersList>
+          <locator>
+            <udpv4>
+              <address>10.42.0.1</address>
+            </udpv4>
+          </locator>
+        </initialPeersList>
+      </builtin>
       <useBuiltinTransports>false</useBuiltinTransports>
       <userTransports>
         <transport_id>pi_ethernet_udp</transport_id>

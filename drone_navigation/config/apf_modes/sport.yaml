@@ -3,8 +3,8 @@ apf_safety:
     # Optimized values from successful three-goal Optuna trial 1154.
     profiles:
       sport:
-        obstacle_influence_radius: 75.63897058213283
-        fw_avoid_trigger_dist: 70.13419244776944
+        obstacle_influence_radius: 70.0
+        fw_avoid_trigger_dist: 60.0
         mc_trail_half_width: 2.5
         fw_trail_half_width: 12.034142094990367
         lidar_vertical_half_fov_deg: 15.0

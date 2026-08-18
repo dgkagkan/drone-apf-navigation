@@ -32,7 +32,7 @@ public:
     min_valid_range_ = std::max(
       0.0, declare_parameter<double>("min_valid_range", 0.2));
     max_valid_range_ = std::max(
-      min_valid_range_, declare_parameter<double>("max_valid_range", 78.0));
+      min_valid_range_, declare_parameter<double>("max_valid_range", 200.0));
 
     auto qos = rclcpp::SensorDataQoS().keep_last(1);
     cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
@@ -183,7 +183,7 @@ private:
   std::string output_topic_;
   std::string secondary_output_topic_;
   double min_valid_range_{0.2};
-  double max_valid_range_{78.0};
+  double max_valid_range_{200.0};
   std::mutex cloud_mutex_;
   sensor_msgs::msg::PointCloud2::SharedPtr latest_cloud_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;

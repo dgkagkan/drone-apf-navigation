@@ -236,7 +236,7 @@ def _launch_setup(context):
                     "output_topic": f"/{drone_id}/scan_3d/filtered_points",
                     "secondary_output_topic": "/swarm/scan_3d/filtered_points",
                     "min_valid_range": 0.2,
-                    "max_valid_range": 78.0,
+                    "max_valid_range": 300.0,
                 }],
             )],
         ),

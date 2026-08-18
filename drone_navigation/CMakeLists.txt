@@ -60,7 +60,7 @@ ament_target_dependencies(lidar_processor_node
 add_executable(route_executor_node src/route_executor_node.cpp)
 target_compile_features(route_executor_node PRIVATE cxx_std_17)
 ament_target_dependencies(route_executor_node
-  drone_interfaces rclcpp rclcpp_action)
+  drone_interfaces rclcpp rclcpp_action std_msgs)
 
 add_executable(navigation_server_node src/navigation_server_node.cpp)
 target_compile_features(navigation_server_node PRIVATE cxx_std_17)

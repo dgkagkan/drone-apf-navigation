@@ -411,7 +411,7 @@ def generate_launch_description():
         DeclareLaunchArgument("use_mapping", default_value="true"),
         DeclareLaunchArgument("mapping_rate_hz", default_value="5.0"),
         DeclareLaunchArgument("mapping_resolution_m", default_value="0.5"),
-        DeclareLaunchArgument("mapping_max_range_m", default_value="78.0"),
+        DeclareLaunchArgument("mapping_max_range_m", default_value="300.0"),
         DeclareLaunchArgument("models_dir", default_value="/tmp/drone_swarm_gz_models"),
         DeclareLaunchArgument("work_root", default_value="/tmp/drone_swarm_px4"),
         DeclareLaunchArgument("drone_1_east_m", default_value="0.0"),

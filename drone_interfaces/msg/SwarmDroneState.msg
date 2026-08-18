@@ -6,6 +6,7 @@ bool registered
 bool connected
 bool localized
 bool navigation_ready
+bool operator_enabled
 bool available
 bool busy
 bool armed
@@ -13,5 +14,8 @@ bool offboard
 bool has_lidar
 bool supports_fixed_wing
 bool supports_vtol
+bool has_speed_override
+float64 speed_override_m_s
+float64 lidar_range_m
 float64 last_update_age_sec
 geometry_msgs/Point position

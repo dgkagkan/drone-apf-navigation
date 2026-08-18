@@ -1,5 +1,10 @@
 uint8 EXECUTE=0
 uint8 CANCEL=1
+uint8 SET_SPEED=2
+uint8 LAND=3
+uint8 SET_LIDAR_RANGE=4
+uint8 ARM=5
+uint8 TAKEOFF=6
 
 std_msgs/Header header
 uint64 command_id
@@ -8,3 +13,7 @@ uint32 revision
 uint8 command
 SwarmRoute[] routes
 string[] target_drone_ids
+float64 cruise_speed_m_s
+float64 lidar_range_m
+float64 takeoff_altitude_m
+float64 takeoff_climb_speed_m_s

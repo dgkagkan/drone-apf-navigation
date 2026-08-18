@@ -26,6 +26,7 @@
       <div class="command-row">
         <button class="button arm" data-all="arm">ARM ALL</button>
         <button class="button primary" data-all="takeoff">TAKEOFF ALL</button>
+        <button class="button danger" data-command="land">LAND ALL</button>
         <button class="button" data-command="home">HOME ALL</button>
         <button class="button danger" data-command="cancel">CANCEL MISSION</button>
         <label>Takeoff altitude <input id="takeoff-altitude" type="number" value="15" min="2" max="100" step="1"> m</label>
@@ -44,17 +45,17 @@
         </div>
         <div class="map-wrap">
           <canvas id="map"></canvas>
-          <div class="map-help">Click to place target · drag to pan · wheel to zoom</div>
+          <div class="map-help">Click to add target · drag to pan · wheel to zoom</div>
           <div class="map-coordinates" id="map-coordinates">E 0.0 · N 0.0</div>
         </div>
         <div class="target-form">
           <label>X / East<input id="target-x" type="number" step="0.1" value="0"></label>
           <label>Y / North<input id="target-y" type="number" step="0.1" value="0"></label>
           <label>Z / Altitude<input id="target-z" type="number" step="0.5" value="15"></label>
-          <label>CRUISE SPEED (m/s)<input id="target-speed" type="number" step="1" value="20" min="0.1" max="50" list="speed-presets"></label>
+          <label>CRUISE SPEED (m/s)<input id="target-speed" type="number" step="1" value="15" min="0.1" max="50" list="speed-presets"></label>
           <datalist id="speed-presets"><option value="5"><option value="10"><option value="15"><option value="20"><option value="30"></datalist>
           <label class="check"><input id="target-fixed-wing" type="checkbox" checked> Fixed wing</label>
-          <button class="button primary" id="add-target">ADD TARGET</button>
+          <button class="button primary" id="add-target">ADD COORDINATES</button>
         </div>
         <div class="mission-actions">
           <button class="button primary" data-command="calculate">CALCULATE</button>

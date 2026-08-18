@@ -17,6 +17,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/float64.hpp>
 
 using ApfTelemetry = drone_interfaces::msg::ApfTelemetry;
 using FlightRequest = drone_interfaces::msg::FlightRequest;
@@ -46,7 +47,7 @@ public:
     goal_chain_grace_period_s_ = std::max(
       0.05, declare_parameter<double>("goal_chain_grace_period_s", 0.25));
     default_speed_m_s_ = std::max(
-      0.2, declare_parameter<double>("default_speed_m_s", 20.0));
+      0.2, declare_parameter<double>("default_speed_m_s", 15.0));
     max_speed_m_s_ = std::max(
       default_speed_m_s_, declare_parameter<double>("max_speed_m_s", 20.0));
     altitude_gain_ = std::max(
@@ -76,6 +77,19 @@ public:
       [this](const std_msgs::msg::Bool::SharedPtr message) {
         std::lock_guard<std::mutex> lock(mutex_);
         manual_override_ = message->data;
+      });
+    speed_override_sub_ = create_subscription<std_msgs::msg::Float64>(
+      "/navigation/speed_override", rclcpp::QoS(1).reliable().transient_local(),
+      [this](const std_msgs::msg::Float64::SharedPtr message) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        has_speed_override_ = std::isfinite(message->data) && message->data > 0.0;
+        speed_override_m_s_ = has_speed_override_ ? message->data : 0.0;
+        if (has_speed_override_) {
+          RCLCPP_INFO(
+            get_logger(), "Navigation speed override set to %.1f m/s", speed_override_m_s_);
+        } else {
+          RCLCPP_INFO(get_logger(), "Navigation speed override cleared");
+        }
       });
     command_pub_ = create_publisher<MotionCommand>("/motion/autonomous_intent", 10);
     flight_request_pub_ = create_publisher<FlightRequest>("/flight/request", 10);
@@ -241,13 +255,13 @@ private:
     command_pub_->publish(command);
   }
 
-  void scheduleArrivalHold(double altitude_m)
+  void scheduleArrivalHold(double altitude_m, bool immediate = false)
   {
     std::lock_guard<std::mutex> lock(mutex_);
     arrival_hold_altitude_m_ = altitude_m;
     arrival_hold_start_ = now();
-    arrival_hold_pending_ = true;
-    arrival_hold_active_ = false;
+    arrival_hold_pending_ = !immediate;
+    arrival_hold_active_ = immediate;
     hold_transition_requested_ = false;
   }
 
@@ -330,6 +344,8 @@ private:
     bool manual_override = false;
     bool avoidance_active = false;
     std::string active_apf_mode;
+    bool has_speed_override = false;
+    double speed_override_m_s = 0.0;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       goal_handle = active_goal_;
@@ -337,6 +353,8 @@ private:
       manual_override = manual_override_;
       avoidance_active = avoidance_active_;
       active_apf_mode = active_apf_mode_;
+      has_speed_override = has_speed_override_;
+      speed_override_m_s = speed_override_m_s_;
     }
     if (!goal_handle || !goal_handle->is_active()) {
       processArrivalHold(state);
@@ -352,6 +370,10 @@ private:
     const double distance = std::sqrt(horizontal_distance * horizontal_distance + up * up);
 
     if (goal_handle->is_canceling()) {
+      scheduleArrivalHold(state.position_enu.z, true);
+      RCLCPP_WARN(
+        get_logger(), "Navigation canceled; entering MC altitude hold at %.1fm",
+        state.position_enu.z);
       finishGoal(
         goal_handle, NavigateTo::Result::CANCELED, "goal canceled", distance, true);
       return;
@@ -402,8 +424,8 @@ private:
         goal->use_fixed_wing ? "fixed wing" : "multicopter");
     }
 
-    const double requested_speed = goal->cruise_speed_m_s > 0.0 ?
-      goal->cruise_speed_m_s : default_speed_m_s_;
+    const double requested_speed = has_speed_override ? speed_override_m_s :
+      (goal->cruise_speed_m_s > 0.0 ? goal->cruise_speed_m_s : default_speed_m_s_);
     const double speed = std::clamp(requested_speed, 0.2, max_speed_m_s_);
     MotionCommand command;
     command.header.stamp = now();
@@ -453,7 +475,7 @@ private:
   double goal_tolerance_m_ {25.0};
   double altitude_tolerance_m_ {2.0};
   double goal_chain_grace_period_s_ {0.25};
-  double default_speed_m_s_ {20.0};
+  double default_speed_m_s_ {15.0};
   double max_speed_m_s_ {20.0};
   double altitude_gain_ {0.8};
   double max_vertical_speed_m_s_ {3.0};
@@ -463,6 +485,8 @@ private:
   bool have_state_ {false};
   bool manual_override_ {false};
   bool avoidance_active_ {false};
+  bool has_speed_override_ {false};
+  double speed_override_m_s_ {0.0};
   std::string active_apf_mode_ {"unknown"};
   rclcpp::Time last_transition_request_ {0, 0, RCL_ROS_TIME};
   bool arrival_hold_pending_ {false};
@@ -475,6 +499,7 @@ private:
   rclcpp::Subscription<VehicleState>::SharedPtr state_sub_;
   rclcpp::Subscription<ApfTelemetry>::SharedPtr telemetry_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr override_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr speed_override_sub_;
   rclcpp::Publisher<MotionCommand>::SharedPtr command_pub_;
   rclcpp::Publisher<FlightRequest>::SharedPtr flight_request_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr active_goal_pub_;

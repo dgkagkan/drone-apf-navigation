@@ -13,14 +13,19 @@
 #include <vector>
 
 #include <drone_interfaces/action/navigate_to.hpp>
+#include <drone_interfaces/action/takeoff.hpp>
+#include <drone_interfaces/msg/flight_request.hpp>
 #include <drone_interfaces/msg/route_target.hpp>
 #include <drone_interfaces/msg/swarm_mission_command.hpp>
 #include <drone_interfaces/msg/swarm_mission_feedback.hpp>
 #include <drone_interfaces/msg/swarm_route.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
+#include <std_msgs/msg/float64.hpp>
 
 using NavigateTo = drone_interfaces::action::NavigateTo;
+using Takeoff = drone_interfaces::action::Takeoff;
+using FlightRequest = drone_interfaces::msg::FlightRequest;
 using NavigateGoalHandle = rclcpp_action::ClientGoalHandle<NavigateTo>;
 using RouteTarget = drone_interfaces::msg::RouteTarget;
 using SwarmMissionCommand = drone_interfaces::msg::SwarmMissionCommand;
@@ -50,9 +55,18 @@ public:
     mission_command_sub_ = create_subscription<SwarmMissionCommand>(
       "/swarm/mission_command", command_qos,
       std::bind(&RouteExecutorNode::onMissionCommand, this, std::placeholders::_1));
+    flight_command_sub_ = create_subscription<SwarmMissionCommand>(
+      "/swarm/mission_command", rclcpp::QoS(10).reliable().durability_volatile(),
+      std::bind(&RouteExecutorNode::onFlightCommand, this, std::placeholders::_1));
     mission_feedback_pub_ = create_publisher<SwarmMissionFeedback>(
       "/swarm/mission_feedback", feedback_qos);
+    speed_override_pub_ = create_publisher<std_msgs::msg::Float64>(
+      "/navigation/speed_override", rclcpp::QoS(1).reliable().transient_local());
+    lidar_range_pub_ = create_publisher<std_msgs::msg::Float64>(
+      "/perception/lidar_range_override", rclcpp::QoS(1).reliable().transient_local());
+    flight_request_pub_ = create_publisher<FlightRequest>("/flight/request", 10);
     navigate_client_ = rclcpp_action::create_client<NavigateTo>(this, "/navigate_to");
+    takeoff_client_ = rclcpp_action::create_client<Takeoff>(this, "/takeoff");
     timer_ = create_wall_timer(
       std::chrono::milliseconds(50), std::bind(&RouteExecutorNode::onTimer, this));
 
@@ -157,6 +171,33 @@ private:
 
   void onMissionCommand(const SwarmMissionCommand::SharedPtr command)
   {
+    if (command->command == SwarmMissionCommand::SET_SPEED) {
+      if (commandTargetsThisDrone(*command)) {
+        std_msgs::msg::Float64 speed_override;
+        speed_override.data = command->cruise_speed_m_s;
+        speed_override_pub_->publish(speed_override);
+        if (speed_override.data > 0.0) {
+          RCLCPP_INFO(
+            get_logger(), "Applied broadcast speed override %.1f m/s", speed_override.data);
+        } else {
+          RCLCPP_INFO(get_logger(), "Cleared broadcast speed override");
+        }
+      }
+      return;
+    }
+    if (command->command == SwarmMissionCommand::SET_LIDAR_RANGE) {
+      if (commandTargetsThisDrone(*command)) {
+        std_msgs::msg::Float64 lidar_range;
+        lidar_range.data = command->lidar_range_m;
+        lidar_range_pub_->publish(lidar_range);
+        RCLCPP_INFO(
+          get_logger(), "Applied broadcast LiDAR/APF range %.1f m", lidar_range.data);
+      }
+      return;
+    }
+    if (command->command == SwarmMissionCommand::LAND ||
+      command->command == SwarmMissionCommand::ARM ||
+      command->command == SwarmMissionCommand::TAKEOFF) return;
     if (command->command == SwarmMissionCommand::CANCEL) {
       handleCancelCommand(*command);
       return;
@@ -280,6 +321,83 @@ private:
     if (child) navigate_client_->async_cancel_goal(child);
     RCLCPP_INFO(
       get_logger(), "Accepted broadcast cancel for mission %lu", command.mission_id);
+  }
+
+  void handleLandCommand(const SwarmMissionCommand & command)
+  {
+    if (!commandTargetsThisDrone(command)) return;
+
+    NavigateGoalHandle::SharedPtr child;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      command_id_ = command.command_id;
+      if (route_active_) {
+        cancel_requested_ = true;
+        child = active_navigate_goal_;
+      }
+    }
+    if (child) navigate_client_->async_cancel_goal(child);
+
+    FlightRequest request;
+    request.header.stamp = now();
+    request.header.frame_id = map_frame_;
+    request.request = FlightRequest::LAND;
+    flight_request_pub_->publish(request);
+    RCLCPP_WARN(get_logger(), "Accepted broadcast LAND command");
+  }
+
+  void onFlightCommand(const SwarmMissionCommand::SharedPtr command)
+  {
+    if (!commandTargetsThisDrone(*command)) return;
+    switch (command->command) {
+      case SwarmMissionCommand::ARM:
+        publishFlightRequest(FlightRequest::ARM_OFFBOARD);
+        RCLCPP_INFO(get_logger(), "Accepted broadcast ARM command");
+        break;
+      case SwarmMissionCommand::TAKEOFF:
+        sendTakeoffGoal(*command);
+        break;
+      case SwarmMissionCommand::LAND:
+        handleLandCommand(*command);
+        break;
+      default:
+        break;
+    }
+  }
+
+  void publishFlightRequest(uint8_t request_type)
+  {
+    FlightRequest request;
+    request.header.stamp = now();
+    request.header.frame_id = map_frame_;
+    request.request = request_type;
+    flight_request_pub_->publish(request);
+  }
+
+  void sendTakeoffGoal(const SwarmMissionCommand & command)
+  {
+    if (!takeoff_client_->action_server_is_ready()) {
+      RCLCPP_WARN(get_logger(), "Rejected broadcast TAKEOFF: local action server unavailable");
+      return;
+    }
+    Takeoff::Goal goal;
+    goal.target_altitude_m = command.takeoff_altitude_m;
+    goal.climb_speed_m_s = command.takeoff_climb_speed_m_s;
+    rclcpp_action::Client<Takeoff>::SendGoalOptions options;
+    options.goal_response_callback =
+      [this](const rclcpp_action::ClientGoalHandle<Takeoff>::SharedPtr & goal_handle) {
+        RCLCPP_INFO(
+          get_logger(), "Broadcast TAKEOFF %s by local flight supervisor",
+          goal_handle ? "accepted" : "rejected");
+      };
+    options.result_callback =
+      [this](const rclcpp_action::ClientGoalHandle<Takeoff>::WrappedResult & result) {
+        const bool succeeded = result.code == rclcpp_action::ResultCode::SUCCEEDED &&
+          result.result && result.result->success;
+        RCLCPP_INFO(
+          get_logger(), "Broadcast TAKEOFF %s", succeeded ? "completed" : "failed");
+      };
+    takeoff_client_->async_send_goal(goal, options);
   }
 
   void onTimer()
@@ -444,8 +562,13 @@ private:
   bool cancel_requested_ {false};
   NavigateGoalHandle::SharedPtr active_navigate_goal_;
   rclcpp_action::Client<NavigateTo>::SharedPtr navigate_client_;
+  rclcpp_action::Client<Takeoff>::SharedPtr takeoff_client_;
   rclcpp::Subscription<SwarmMissionCommand>::SharedPtr mission_command_sub_;
+  rclcpp::Subscription<SwarmMissionCommand>::SharedPtr flight_command_sub_;
   rclcpp::Publisher<SwarmMissionFeedback>::SharedPtr mission_feedback_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr speed_override_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr lidar_range_pub_;
+  rclcpp::Publisher<FlightRequest>::SharedPtr flight_request_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

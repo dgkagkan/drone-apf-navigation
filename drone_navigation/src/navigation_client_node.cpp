@@ -48,7 +48,7 @@ public:
   : Node("navigation_client")
   {
     cruise_speed_m_s_ = std::max(
-      0.2, declare_parameter<double>("cruise_speed_m_s", 20.0));
+      0.2, declare_parameter<double>("cruise_speed_m_s", 15.0));
     feedback_period_s_ = std::max(
       0.1, declare_parameter<double>("feedback_period_s", 0.5));
     takeoff_altitude_m_ = std::max(
@@ -780,7 +780,7 @@ private:
     dispatchNextGoal();
   }
 
-  double cruise_speed_m_s_ {20.0};
+  double cruise_speed_m_s_ {15.0};
   double feedback_period_s_ {0.5};
   double takeoff_altitude_m_ {15.0};
   double takeoff_climb_speed_m_s_ {2.0};

@@ -5,6 +5,12 @@ PX4-Autopilot tree to take effect. The copies here are for reference / backup
 so the project is self-documenting; the **active** files are the ones inside
 `~/drone_project/PX4-Autopilot`.
 
+`0001-offboard-fixed-wing-speed.patch` makes the fixed-wing offboard controller
+use the horizontal trajectory velocity magnitude as its cruise airspeed
+setpoint. Without it PX4 falls back to `FW_AIRSPD_TRIM` (15 m/s), even when ROS
+requests another speed. Apply it from the PX4 root with
+`git apply /path/to/drone_bringup/px4/0001-offboard-fixed-wing-speed.patch`.
+
 ## `4030_gz_standard_vtol_lidar`
 
 Custom PX4 SITL airframe that spawns the `standard_vtol_lidar` gz model

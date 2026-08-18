@@ -9,6 +9,9 @@ let dragging = false;
 let moved = false;
 let dragStart = null;
 let cameraIds = [];
+let droneInteractionUntil = 0;
+const speedDrafts = new Map();
+const lidarRangeDrafts = new Map();
 
 function droneColor(id) {
   let hash = 2166136261;
@@ -103,26 +106,48 @@ function renderDrones() {
     grid.innerHTML = `<div class="camera-empty">Waiting for drones to join the swarm</div>`;
     return;
   }
+  const activeEditor = document.activeElement;
+  if (Date.now() < droneInteractionUntil ||
+      (grid.contains(activeEditor) && activeEditor.matches("input"))) return;
   grid.innerHTML = state.drones.map(drone => {
     const p = drone.position;
     const telemetry = state.telemetry[drone.drone_id];
     const speed = state.motion[drone.drone_id]?.speed_m_s;
     const obstacle = telemetry?.nearest_obstacle_m;
-    return `<article class="drone-card" style="border-top:2px solid ${droneColor(drone.drone_id)}">
-      <div class="drone-title"><h3>${drone.drone_id}</h3><span class="badge ${drone.connected ? "online" : ""}">${drone.connected ? "connected" : "offline"}</span></div>
+    const enabled = drone.operator_enabled;
+    const speedCommand = speedDrafts.get(drone.drone_id) ??
+      (drone.has_speed_override ? drone.speed_override_m_s.toFixed(1) : "15.0");
+    const lidarRange = lidarRangeDrafts.get(drone.drone_id) ?? drone.lidar_range_m.toFixed(0);
+    const controlsDisabled = drone.connected && enabled ? "" : "disabled";
+    const badgeText = !enabled ? "OFF / EXCLUDED" : (drone.connected ? "connected" : "offline");
+    return `<article class="drone-card ${enabled ? "" : "excluded"}" style="border-top:2px solid ${droneColor(drone.drone_id)}">
+      <div class="drone-title"><h3>${drone.drone_id}</h3><span class="badge ${drone.connected && enabled ? "online" : ""}">${badgeText}</span></div>
       <div class="drone-position"><div><span>X</span>${p.x.toFixed(1)}</div><div><span>Y</span>${p.y.toFixed(1)}</div><div><span>Z</span>${p.z.toFixed(1)}</div></div>
       <div class="speed-line"><span>SPEED</span><b>${speed == null ? "—" : speed.toFixed(1)} m/s</b></div>
+      <div class="speed-control">
+        <label>COMMAND<input type="number" min="10" max="20" step="0.5" value="${speedCommand}" data-drone-speed="${drone.drone_id}" ${controlsDisabled}></label>
+        <button class="button primary" data-set-drone-speed="${drone.drone_id}" ${controlsDisabled}>SET</button>
+        <button class="button ghost" data-clear-drone-speed="${drone.drone_id}" ${drone.has_speed_override && controlsDisabled === "" ? "" : "disabled"}>AUTO</button>
+      </div>
+      <div class="speed-source">${drone.has_speed_override ? `Override ${drone.speed_override_m_s.toFixed(1)} m/s` : "Using route speed · default 15.0 m/s"}</div>
+      <div class="lidar-control">
+        <label>ACTIVE LiDAR / APF RANGE <input type="range" min="70" max="300" step="10" value="${lidarRange}" data-drone-lidar-range="${drone.drone_id}" ${controlsDisabled}></label>
+        <output data-lidar-range-output="${drone.drone_id}">${lidarRange} m</output>
+        <button class="button primary" data-set-drone-lidar-range="${drone.drone_id}" ${controlsDisabled}>SET</button>
+      </div>
       <div class="drone-flags">
         <span class="flag ${drone.armed ? "on" : ""}">${drone.armed ? "ARMED" : "DISARMED"}</span>
         <span class="flag ${drone.offboard ? "on" : ""}">${drone.offboard ? "OFFBOARD" : "MANUAL"}</span>
         <span class="flag ${drone.localized ? "on" : ""}">LOCALIZED</span>
-        <span class="flag ${drone.busy ? "on" : ""}">${drone.busy ? "BUSY" : "AVAILABLE"}</span>
+        <span class="flag ${drone.available ? "on" : ""}">${!enabled ? "EXCLUDED" : (drone.busy ? "BUSY" : "AVAILABLE")}</span>
       </div>
       <div class="apf-line">APF ${telemetry?.active_mode || "—"} · obstacle ${obstacle == null ? "—" : obstacle.toFixed(1) + " m"}</div>
       <div class="drone-actions">
-        <button class="button arm" data-drone-arm="${drone.drone_id}" ${drone.connected ? "" : "disabled"}>ARM</button>
-        <button class="button primary" data-drone-takeoff="${drone.drone_id}" ${drone.connected ? "" : "disabled"}>TAKEOFF</button>
-        <button class="button" data-drone-home="${drone.drone_id}" ${drone.connected ? "" : "disabled"}>HOME</button>
+        <button class="button arm" data-drone-arm="${drone.drone_id}" ${controlsDisabled}>ARM</button>
+        <button class="button primary" data-drone-takeoff="${drone.drone_id}" ${controlsDisabled}>TAKEOFF</button>
+        <button class="button" data-drone-home="${drone.drone_id}" ${controlsDisabled}>HOME</button>
+        <button class="button danger" data-drone-land="${drone.drone_id}" ${controlsDisabled}>LAND</button>
+        <button class="button ${enabled ? "danger ghost" : "arm"}" data-drone-membership="${drone.drone_id}" data-membership-command="${enabled ? "off" : "rejoin"}">${enabled ? "OFF" : "REJOIN"}</button>
       </div>
     </article>`;
   }).join("");
@@ -244,7 +269,7 @@ function drawTarget(point, label, color) {
 
 function drawDrone(drone) {
   const p = worldToScreen(drone.position);
-  const color = drone.connected ? droneColor(drone.drone_id) : "#59636a";
+  const color = drone.connected && drone.operator_enabled ? droneColor(drone.drone_id) : "#59636a";
   context.save(); context.translate(p.x, p.y); context.fillStyle = color; context.strokeStyle = "#071014"; context.lineWidth = 2;
   context.beginPath(); context.moveTo(0, -11); context.lineTo(9, 9); context.lineTo(0, 5); context.lineTo(-9, 9); context.closePath(); context.fill(); context.stroke(); context.restore();
   const speed = state.motion[drone.drone_id]?.speed_m_s;
@@ -272,40 +297,88 @@ function drawVector(origin, vector, color) {
 }
 
 function allDrones(kind) {
-  const drones = (state?.drones || []).filter(drone => drone.connected);
+  const drones = (state?.drones || []).filter(drone => drone.connected && drone.operator_enabled);
   if (!drones.length) return toast("No connected drones", true);
   const altitude = Number(document.getElementById("takeoff-altitude").value);
-  drones.forEach(drone => api(kind === "arm" ? "/api/drone/arm" : "/api/drone/takeoff", {
-    drone_id: drone.drone_id, arm: true, altitude_m: altitude,
-  }).catch(() => {}));
+  api("/api/swarm-command", { command: kind, altitude_m: altitude }).catch(() => {});
 }
+
+function targetPayload() {
+  return {
+    x: Number(document.getElementById("target-x").value),
+    y: Number(document.getElementById("target-y").value),
+    z: Number(document.getElementById("target-z").value),
+    cruise_speed_m_s: Number(document.getElementById("target-speed").value),
+    use_fixed_wing: document.getElementById("target-fixed-wing").checked,
+  };
+}
+
+function addCurrentTarget() {
+  return api("/api/targets", targetPayload());
+}
+
+const droneGrid = document.getElementById("drone-grid");
+droneGrid.addEventListener("pointerdown", () => {
+  droneInteractionUntil = Date.now() + 1500;
+});
+droneGrid.addEventListener("input", event => {
+  droneInteractionUntil = Date.now() + 1500;
+  if (event.target.dataset.droneSpeed) {
+    speedDrafts.set(event.target.dataset.droneSpeed, event.target.value);
+  }
+  if (event.target.dataset.droneLidarRange) {
+    const droneId = event.target.dataset.droneLidarRange;
+    lidarRangeDrafts.set(droneId, event.target.value);
+    const output = droneGrid.querySelector(`[data-lidar-range-output="${droneId}"]`);
+    if (output) output.value = `${event.target.value} m`;
+  }
+});
 
 document.addEventListener("click", event => {
   const target = event.target;
   if (target.dataset.command) api("/api/swarm-command", { command: target.dataset.command }).catch(() => {});
   if (target.dataset.all) allDrones(target.dataset.all);
-  if (target.dataset.droneArm) api("/api/drone/arm", { drone_id: target.dataset.droneArm, arm: true }).catch(() => {});
-  if (target.dataset.droneTakeoff) api("/api/drone/takeoff", { drone_id: target.dataset.droneTakeoff, altitude_m: Number(document.getElementById("takeoff-altitude").value) }).catch(() => {});
+  if (target.dataset.droneArm) api("/api/swarm-command", { command: "arm", drone_id: target.dataset.droneArm }).catch(() => {});
+  if (target.dataset.droneTakeoff) api("/api/swarm-command", { command: "takeoff", drone_id: target.dataset.droneTakeoff, altitude_m: Number(document.getElementById("takeoff-altitude").value) }).catch(() => {});
   if (target.dataset.droneHome) api("/api/swarm-command", { command: "home", drone_id: target.dataset.droneHome }).catch(() => {});
+  if (target.dataset.droneLand) api("/api/swarm-command", { command: "land", drone_id: target.dataset.droneLand }).catch(() => {});
+  if (target.dataset.droneMembership) api("/api/swarm-command", {
+    command: target.dataset.membershipCommand, drone_id: target.dataset.droneMembership,
+  }).then(() => { droneInteractionUntil = 0; refresh(); }).catch(() => {});
+  if (target.dataset.setDroneSpeed) {
+    const input = document.querySelector(`[data-drone-speed="${target.dataset.setDroneSpeed}"]`);
+    api("/api/drone/speed", { drone_id: target.dataset.setDroneSpeed, cruise_speed_m_s: Number(input.value) })
+      .then(() => { speedDrafts.delete(target.dataset.setDroneSpeed); droneInteractionUntil = 0; refresh(); })
+      .catch(() => {});
+  }
+  if (target.dataset.clearDroneSpeed) {
+    api("/api/drone/speed", { drone_id: target.dataset.clearDroneSpeed, clear: true })
+      .then(() => { speedDrafts.delete(target.dataset.clearDroneSpeed); droneInteractionUntil = 0; refresh(); })
+      .catch(() => {});
+  }
+  if (target.dataset.setDroneLidarRange) {
+    const droneId = target.dataset.setDroneLidarRange;
+    const input = document.querySelector(`[data-drone-lidar-range="${droneId}"]`);
+    api("/api/drone/lidar-range", { drone_id: droneId, lidar_range_m: Number(input.value) })
+      .then(() => { lidarRangeDrafts.delete(droneId); droneInteractionUntil = 0; refresh(); })
+      .catch(() => {});
+  }
   if (target.dataset.removeTarget) api("/api/targets/remove", { target_id: Number(target.dataset.removeTarget) }).catch(() => {});
 });
 
-document.getElementById("add-target").addEventListener("click", () => api("/api/targets", {
-  x: Number(document.getElementById("target-x").value),
-  y: Number(document.getElementById("target-y").value),
-  z: Number(document.getElementById("target-z").value),
-  cruise_speed_m_s: Number(document.getElementById("target-speed").value),
-  use_fixed_wing: document.getElementById("target-fixed-wing").checked,
-}).catch(() => {}));
+document.getElementById("add-target").addEventListener("click", () => {
+  addCurrentTarget().catch(() => {});
+});
 
 canvas.addEventListener("mousedown", event => { dragging = true; moved = false; dragStart = { x: event.clientX, y: event.clientY, viewX: view.x, viewY: view.y }; });
 window.addEventListener("mouseup", event => {
   if (!dragging) return;
   dragging = false;
-  if (!moved) {
+  if (!moved && event.target === canvas) {
     const point = screenToWorld(event.clientX, event.clientY);
     document.getElementById("target-x").value = point.x.toFixed(1);
     document.getElementById("target-y").value = point.y.toFixed(1);
+    addCurrentTarget().catch(() => {});
   }
 });
 window.addEventListener("mousemove", event => {

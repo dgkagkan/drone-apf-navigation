@@ -1,0 +1,21 @@
+diff --git a/src/modules/fw_mode_manager/FixedWingModeManager.cpp b/src/modules/fw_mode_manager/FixedWingModeManager.cpp
+--- a/src/modules/fw_mode_manager/FixedWingModeManager.cpp
++++ b/src/modules/fw_mode_manager/FixedWingModeManager.cpp
+@@ -2082,7 +2082,7 @@ FixedWingModeManager::Run()
+ 				_pos_sp_triplet = {}; // clear any existing
+ 				_pos_sp_triplet.timestamp = trajectory_setpoint.timestamp;
+ 				_pos_sp_triplet.current.timestamp = trajectory_setpoint.timestamp;
+-				_pos_sp_triplet.current.cruising_speed = NAN; // ignored
++				_pos_sp_triplet.current.cruising_speed = NAN;
+ 				_pos_sp_triplet.current.cruising_throttle = NAN; // ignored
+ 				_pos_sp_triplet.current.vx = NAN;
+ 				_pos_sp_triplet.current.vy = NAN;
+@@ -2111,6 +2111,8 @@ FixedWingModeManager::Run()
+ 					_pos_sp_triplet.current.vx = trajectory_setpoint.velocity[0];
+ 					_pos_sp_triplet.current.vy = trajectory_setpoint.velocity[1];
+ 					_pos_sp_triplet.current.vz = trajectory_setpoint.velocity[2];
++					_pos_sp_triplet.current.cruising_speed =
++						Vector2f(trajectory_setpoint.velocity[0], trajectory_setpoint.velocity[1]).norm();
+ 
+ 					if (Vector3f(trajectory_setpoint.acceleration).isAllFinite()) {
+ 						Vector2f velocity_sp_2d(trajectory_setpoint.velocity[0], trajectory_setpoint.velocity[1]);

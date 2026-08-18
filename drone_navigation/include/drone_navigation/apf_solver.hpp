@@ -23,7 +23,7 @@ enum class FlightMode
 struct ApfParameters
 {
   double obstacle_influence_radius_m {70.0};
-  double fw_avoid_trigger_distance_m {70.0};
+  double fw_avoid_trigger_distance_m {60.0};
   double mc_corridor_half_width_m {2.5};
   double fw_corridor_half_width_m {10.0};
   double lidar_vertical_half_fov_rad {0.2617993878};

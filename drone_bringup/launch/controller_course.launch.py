@@ -51,7 +51,7 @@ def generate_launch_description():
         DeclareLaunchArgument("mapping_delay", default_value="10.0"),
         DeclareLaunchArgument("mapping_rate", default_value="10.0"),
         DeclareLaunchArgument("mapping_resolution", default_value="0.5"),
-        DeclareLaunchArgument("mapping_max_range", default_value="78.0"),
+        DeclareLaunchArgument("mapping_max_range", default_value="200.0"),
     ]
 
     simulation = IncludeLaunchDescription(

@@ -59,7 +59,7 @@
                own wings. This creates a 1.2 m dead zone around the drone. -->
           <range>
             <min>1.2</min>
-            <max>80.0</max>
+            <max>300.0</max>
             <resolution>0.01</resolution>
           </range>
         </lidar>

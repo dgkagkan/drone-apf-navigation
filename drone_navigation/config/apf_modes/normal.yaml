@@ -2,8 +2,8 @@ apf_safety:
   ros__parameters:
     profiles:
       normal:
-        obstacle_influence_radius: 77.96063615194443
-        fw_avoid_trigger_dist: 73.5424773407324
+        obstacle_influence_radius: 70.0
+        fw_avoid_trigger_dist: 60.0
         mc_trail_half_width: 2.5
         fw_trail_half_width: 11.66155241746725
         lidar_vertical_half_fov_deg: 15.0

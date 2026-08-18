@@ -3,9 +3,21 @@ uint8 CLEAR_PENDING_TARGETS=1
 uint8 CANCEL_ACTIVE_MISSION=2
 uint8 RECALCULATE=3
 uint8 RETURN_HOME=4
+uint8 SET_DRONE_SPEED=5
+uint8 CLEAR_DRONE_SPEED=6
+uint8 LAND=7
+uint8 DISABLE_DRONE=8
+uint8 ENABLE_DRONE=9
+uint8 SET_DRONE_LIDAR_RANGE=10
+uint8 ARM=11
+uint8 TAKEOFF=12
 
 uint8 command
 string drone_id
+float64 cruise_speed_m_s
+float64 lidar_range_m
+float64 takeoff_altitude_m
+float64 takeoff_climb_speed_m_s
 ---
 bool accepted
 string message

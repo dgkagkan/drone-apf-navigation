@@ -39,7 +39,7 @@ public:
   SwarmOperatorNode()
   : Node("swarm_operator")
   {
-    cruise_speed_m_s_ = declare_parameter<double>("cruise_speed_m_s", 20.0);
+    cruise_speed_m_s_ = declare_parameter<double>("cruise_speed_m_s", 15.0);
     use_fixed_wing_ = declare_parameter<bool>("use_fixed_wing", true);
     takeoff_altitude_m_ = declare_parameter<double>("takeoff_altitude_m", 15.0);
     takeoff_climb_speed_m_s_ = declare_parameter<double>("takeoff_climb_speed_m_s", 2.0);
@@ -259,7 +259,9 @@ private:
       printLine("ARM rejected: " + error);
       return;
     }
-    requestArm(selected);
+    sendCommand(
+      SwarmCommand::Request::ARM, "ARM",
+      selected.size() == 1 ? selected.front()->id : "");
   }
 
   void requestArm(const std::vector<std::shared_ptr<DroneControl>> & selected)
@@ -301,7 +303,10 @@ private:
       printLine("TAKEOFF rejected: " + error);
       return;
     }
-    requestTakeoff(selected);
+    sendCommand(
+      SwarmCommand::Request::TAKEOFF, "TAKEOFF",
+      selected.size() == 1 ? selected.front()->id : "",
+      takeoff_altitude_m_, takeoff_climb_speed_m_s_);
   }
 
   void requestTakeoff(const std::vector<std::shared_ptr<DroneControl>> & selected)
@@ -403,7 +408,12 @@ private:
       });
   }
 
-  void sendCommand(uint8_t command, const std::string & name)
+  void sendCommand(
+    uint8_t command,
+    const std::string & name,
+    const std::string & drone_id = "",
+    double takeoff_altitude_m = 0.0,
+    double takeoff_climb_speed_m_s = 0.0)
   {
     if (!command_client_->service_is_ready()) {
       printLine(name + " failed: /swarm/command is unavailable");
@@ -411,6 +421,9 @@ private:
     }
     auto request = std::make_shared<SwarmCommand::Request>();
     request->command = command;
+    request->drone_id = drone_id;
+    request->takeoff_altitude_m = takeoff_altitude_m;
+    request->takeoff_climb_speed_m_s = takeoff_climb_speed_m_s;
     command_client_->async_send_request(
       request,
       [this, name](rclcpp::Client<SwarmCommand>::SharedFuture future) {
@@ -480,7 +493,7 @@ private:
   }
 
   std::atomic<bool> running_ {false};
-  double cruise_speed_m_s_ {20.0};
+  double cruise_speed_m_s_ {15.0};
   bool use_fixed_wing_ {true};
   double takeoff_altitude_m_ {15.0};
   double takeoff_climb_speed_m_s_ {2.0};

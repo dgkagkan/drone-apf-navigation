@@ -16,17 +16,14 @@ import cv2
 import numpy as np
 import rclpy
 from ament_index_python.packages import get_package_share_directory
-from drone_interfaces.action import Takeoff
 from drone_interfaces.msg import ApfTelemetry, SwarmAssignment, SwarmState, VehicleState
 from drone_interfaces.srv import (
     AddSwarmTarget,
-    Arm,
     RemoveSwarmTarget,
     SwarmCommand,
 )
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path as NavigationPath
-from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -40,6 +37,11 @@ COMMANDS = {
     "clear": SwarmCommand.Request.CLEAR_PENDING_TARGETS,
     "cancel": SwarmCommand.Request.CANCEL_ACTIVE_MISSION,
     "home": SwarmCommand.Request.RETURN_HOME,
+    "land": SwarmCommand.Request.LAND,
+    "off": SwarmCommand.Request.DISABLE_DRONE,
+    "rejoin": SwarmCommand.Request.ENABLE_DRONE,
+    "arm": SwarmCommand.Request.ARM,
+    "takeoff": SwarmCommand.Request.TAKEOFF,
 }
 
 ASSIGNMENT_STATES = {
@@ -59,13 +61,6 @@ class HttpCommand:
     payload: dict
     completed: threading.Event = field(default_factory=threading.Event)
     result: dict = field(default_factory=dict)
-
-
-@dataclass
-class DroneClients:
-    namespace: str
-    arm: object
-    takeoff: ActionClient
 
 
 class DashboardNode(Node):
@@ -90,7 +85,6 @@ class DashboardNode(Node):
         self._lock = threading.Lock()
         self._requests = queue.Queue()
         self._state = self._empty_state()
-        self._drone_clients = {}
         self._sensor_subscriptions = {}
         self._telemetry = {}
         self._motion = {}
@@ -208,25 +202,9 @@ class DashboardNode(Node):
     def _ensure_drone(self, drone_id: str, namespace: str):
         if not drone_id or not namespace:
             return
-        existing = self._drone_clients.get(drone_id)
-        if existing is not None and existing.namespace == namespace:
+        if drone_id in self._sensor_subscriptions:
             return
         normalized = "/" + namespace.strip("/")
-        clients = DroneClients(
-            namespace=normalized,
-            arm=self.create_client(
-                Arm,
-                normalized + "/flight/arm",
-                callback_group=self._callback_group,
-            ),
-            takeoff=ActionClient(
-                self,
-                Takeoff,
-                normalized + "/takeoff",
-                callback_group=self._callback_group,
-            ),
-        )
-        self._drone_clients[drone_id] = clients
         sensor_qos = QoSProfile(depth=1)
         sensor_qos.reliability = ReliabilityPolicy.BEST_EFFORT
         path_qos = QoSProfile(depth=1)
@@ -362,10 +340,10 @@ class DashboardNode(Node):
             self._remove_target(command)
         elif command.kind == "swarm_command":
             self._swarm_command(command)
-        elif command.kind == "arm":
-            self._arm(command)
-        elif command.kind == "takeoff":
-            self._takeoff(command)
+        elif command.kind == "set_drone_speed":
+            self._set_drone_speed(command)
+        elif command.kind == "set_drone_lidar_range":
+            self._set_drone_lidar_range(command)
         else:
             self._finish(command, False, "unknown dashboard command")
 
@@ -381,7 +359,7 @@ class DashboardNode(Node):
         request.target.pose.position.y = float(command.payload["y"])
         request.target.pose.position.z = float(command.payload["z"])
         request.target.pose.orientation.w = 1.0
-        request.cruise_speed_m_s = float(command.payload.get("cruise_speed_m_s", 20.0))
+        request.cruise_speed_m_s = float(command.payload.get("cruise_speed_m_s", 15.0))
         request.use_fixed_wing = bool(command.payload.get("use_fixed_wing", True))
         self._complete_service(
             command,
@@ -412,53 +390,52 @@ class DashboardNode(Node):
         request = SwarmCommand.Request()
         request.command = COMMANDS[name]
         request.drone_id = str(command.payload.get("drone_id", ""))
+        request.takeoff_altitude_m = float(
+            command.payload.get("altitude_m", self._takeoff_altitude_m)
+        )
+        request.takeoff_climb_speed_m_s = float(
+            command.payload.get("climb_speed_m_s", self._takeoff_climb_speed_m_s)
+        )
         self._complete_service(
             command,
             self._command_client.call_async(request),
             lambda response: (response.accepted, response.message),
         )
 
-    def _arm(self, command: HttpCommand):
-        drone_id = str(command.payload.get("drone_id", ""))
-        clients = self._drone_clients.get(drone_id)
-        if clients is None or not clients.arm.service_is_ready():
-            self._finish(command, False, f"arm service unavailable for {drone_id}")
+    def _set_drone_speed(self, command: HttpCommand):
+        if not self._command_client.service_is_ready():
+            self._finish(command, False, "/swarm/command is unavailable")
             return
-        request = Arm.Request()
-        request.arm = bool(command.payload.get("arm", True))
+        clear_override = bool(command.payload.get("clear", False))
+        request = SwarmCommand.Request()
+        request.command = (
+            SwarmCommand.Request.CLEAR_DRONE_SPEED
+            if clear_override
+            else SwarmCommand.Request.SET_DRONE_SPEED
+        )
+        request.drone_id = str(command.payload.get("drone_id", ""))
+        request.cruise_speed_m_s = (
+            0.0 if clear_override else float(command.payload["cruise_speed_m_s"])
+        )
         self._complete_service(
             command,
-            clients.arm.call_async(request),
+            self._command_client.call_async(request),
             lambda response: (response.accepted, response.message),
         )
 
-    def _takeoff(self, command: HttpCommand):
-        drone_id = str(command.payload.get("drone_id", ""))
-        clients = self._drone_clients.get(drone_id)
-        if clients is None or not clients.takeoff.server_is_ready():
-            self._finish(command, False, f"takeoff action unavailable for {drone_id}")
+    def _set_drone_lidar_range(self, command: HttpCommand):
+        if not self._command_client.service_is_ready():
+            self._finish(command, False, "/swarm/command is unavailable")
             return
-        goal = Takeoff.Goal()
-        goal.target_altitude_m = float(
-            command.payload.get("altitude_m", self._takeoff_altitude_m)
+        request = SwarmCommand.Request()
+        request.command = SwarmCommand.Request.SET_DRONE_LIDAR_RANGE
+        request.drone_id = str(command.payload.get("drone_id", ""))
+        request.lidar_range_m = float(command.payload["lidar_range_m"])
+        self._complete_service(
+            command,
+            self._command_client.call_async(request),
+            lambda response: (response.accepted, response.message),
         )
-        goal.climb_speed_m_s = float(
-            command.payload.get("climb_speed_m_s", self._takeoff_climb_speed_m_s)
-        )
-        future = clients.takeoff.send_goal_async(goal)
-
-        def goal_response(completed):
-            try:
-                goal_handle = completed.result()
-                self._finish(
-                    command,
-                    goal_handle.accepted,
-                    f"takeoff goal {'accepted' if goal_handle.accepted else 'rejected'} by {drone_id}",
-                )
-            except Exception as exception:
-                self._finish(command, False, f"takeoff request failed: {exception}")
-
-        future.add_done_callback(goal_response)
 
     def _complete_service(self, command: HttpCommand, future, parser: Callable):
         def completed(result_future):
@@ -525,6 +502,7 @@ class DashboardNode(Node):
             "connected": drone.connected,
             "localized": drone.localized,
             "navigation_ready": drone.navigation_ready,
+            "operator_enabled": drone.operator_enabled,
             "available": drone.available,
             "busy": drone.busy,
             "armed": drone.armed,
@@ -532,6 +510,9 @@ class DashboardNode(Node):
             "has_lidar": drone.has_lidar,
             "supports_fixed_wing": drone.supports_fixed_wing,
             "supports_vtol": drone.supports_vtol,
+            "has_speed_override": drone.has_speed_override,
+            "speed_override_m_s": float(drone.speed_override_m_s),
+            "lidar_range_m": float(drone.lidar_range_m),
             "last_update_age_sec": cls._finite(drone.last_update_age_sec),
             "position": cls._point_dict(drone.position),
         }
@@ -572,7 +553,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             HTTPStatus.OK,
             content_types[file_path.suffix],
             file_path.read_bytes(),
-            no_cache=False,
+            no_cache=True,
         )
 
     def do_POST(self):
@@ -581,8 +562,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "/api/targets": "add_target",
             "/api/targets/remove": "remove_target",
             "/api/swarm-command": "swarm_command",
-            "/api/drone/arm": "arm",
-            "/api/drone/takeoff": "takeoff",
+            "/api/drone/speed": "set_drone_speed",
+            "/api/drone/lidar-range": "set_drone_lidar_range",
         }
         kind = routes.get(path)
         if kind is None:

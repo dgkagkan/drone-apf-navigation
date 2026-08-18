@@ -79,8 +79,19 @@ public:
     home_altitude_above_origin_m_ = std::max(
       min_altitude_m_, declare_parameter<double>("home.altitude_above_origin_m", 15.0));
     home_cruise_speed_m_s_ = std::max(
-      0.1, declare_parameter<double>("home.cruise_speed_m_s", 20.0));
+      0.1, declare_parameter<double>("home.cruise_speed_m_s", 15.0));
     home_use_fixed_wing_ = declare_parameter<bool>("home.use_fixed_wing", true);
+    min_drone_speed_m_s_ = std::max(
+      0.1, declare_parameter<double>("speed_override.min_m_s", 10.0));
+    max_drone_speed_m_s_ = std::max(
+      min_drone_speed_m_s_, declare_parameter<double>("speed_override.max_m_s", 20.0));
+    min_lidar_range_m_ = std::max(
+      1.0, declare_parameter<double>("lidar_range.min_m", 70.0));
+    max_lidar_range_m_ = std::max(
+      min_lidar_range_m_, declare_parameter<double>("lidar_range.max_m", 300.0));
+    default_lidar_range_m_ = std::clamp(
+      declare_parameter<double>("lidar_range.default_m", 70.0),
+      min_lidar_range_m_, max_lidar_range_m_);
     if (no_fly_zone_values_.size() % 6 != 0) {
       throw std::runtime_error("geofence.no_fly_zones must contain groups of 6 values");
     }
@@ -143,9 +154,13 @@ private:
     bool localized {false};
     bool navigation_ready {false};
     bool lidar_ready {false};
+    bool operator_enabled {true};
     bool has_lidar {false};
     bool supports_fixed_wing {false};
     bool supports_vtol {false};
+    bool has_speed_override {false};
+    double speed_override_m_s {0.0};
+    double lidar_range_m {70.0};
     std::string boot_id;
     std::string navigate_action;
     std::string arm_service;
@@ -233,6 +248,7 @@ private:
     drone->drone_namespace = drone_namespace;
     drone->state_topic = state_topic;
     drone->last_update = now();
+    drone->lidar_range_m = default_lidar_range_m_;
     drone->last_heartbeat = std::chrono::steady_clock::now() - std::chrono::hours(1);
     drone->state_sub = create_subscription<VehicleState>(
       drone->state_topic, 10,
@@ -481,6 +497,37 @@ private:
       case SwarmCommand::Request::RETURN_HOME:
         response->accepted = startHomeMission(request->drone_id, response->message);
         break;
+      case SwarmCommand::Request::SET_DRONE_SPEED:
+        response->accepted = setDroneSpeed(
+          request->drone_id, request->cruise_speed_m_s, false, response->message);
+        break;
+      case SwarmCommand::Request::CLEAR_DRONE_SPEED:
+        response->accepted = setDroneSpeed(
+          request->drone_id, 0.0, true, response->message);
+        break;
+      case SwarmCommand::Request::LAND:
+        response->accepted = landDrones(request->drone_id, response->message);
+        break;
+      case SwarmCommand::Request::DISABLE_DRONE:
+        response->accepted = setDroneEnabled(request->drone_id, false, response->message);
+        break;
+      case SwarmCommand::Request::ENABLE_DRONE:
+        response->accepted = setDroneEnabled(request->drone_id, true, response->message);
+        break;
+      case SwarmCommand::Request::SET_DRONE_LIDAR_RANGE:
+        response->accepted = setDroneLidarRange(
+          request->drone_id, request->lidar_range_m, response->message);
+        break;
+      case SwarmCommand::Request::ARM:
+        response->accepted = sendFlightControlCommand(
+          SwarmMissionCommand::ARM, request->drone_id, 0.0, 0.0, response->message);
+        break;
+      case SwarmCommand::Request::TAKEOFF:
+        response->accepted = sendFlightControlCommand(
+          SwarmMissionCommand::TAKEOFF, request->drone_id,
+          request->takeoff_altitude_m, request->takeoff_climb_speed_m_s,
+          response->message);
+        break;
       default:
         response->message = "unknown swarm command";
         break;
@@ -490,6 +537,222 @@ private:
     response->pending_target_count = pending_targets_.size();
     response->active_target_count = active_targets_.size();
     response->assigned_drone_count = current_routes_.size();
+  }
+
+  bool setDroneSpeed(
+    const std::string & drone_id,
+    double speed_m_s,
+    bool clear_override,
+    std::string & message)
+  {
+    if (drone_id.empty()) {
+      message = "drone_id is required for a speed override";
+      return false;
+    }
+    if (!clear_override && (!std::isfinite(speed_m_s) ||
+      speed_m_s < min_drone_speed_m_s_ || speed_m_s > max_drone_speed_m_s_))
+    {
+      std::ostringstream reason;
+      reason << "speed must be between " << min_drone_speed_m_s_ << " and "
+             << max_drone_speed_m_s_ << " m/s";
+      message = reason.str();
+      return false;
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const auto found = std::find_if(
+        drones_.begin(), drones_.end(),
+        [&drone_id](const auto & drone) {return drone->id == drone_id;});
+      if (found == drones_.end()) {
+        message = "unknown drone: " + drone_id;
+        return false;
+      }
+      (*found)->has_speed_override = !clear_override;
+      (*found)->speed_override_m_s = clear_override ? 0.0 : speed_m_s;
+      if (clear_override) {
+        message = "cleared speed override for " + drone_id;
+      } else {
+        std::ostringstream confirmation;
+        confirmation << "set " << drone_id << " speed override to " << speed_m_s << " m/s";
+        message = confirmation.str();
+      }
+      status_message_ = message;
+    }
+
+    publishSpeedCommand(drone_id, speed_m_s, clear_override);
+    RCLCPP_INFO(get_logger(), "%s", message.c_str());
+    return true;
+  }
+
+  bool setDroneEnabled(
+    const std::string & drone_id,
+    bool enabled,
+    std::string & message)
+  {
+    if (drone_id.empty()) {
+      message = "drone_id is required";
+      return false;
+    }
+
+    bool owns_route = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const auto found = std::find_if(
+        drones_.begin(), drones_.end(),
+        [&drone_id](const auto & drone) {return drone->id == drone_id;});
+      if (found == drones_.end()) {
+        message = "unknown drone: " + drone_id;
+        return false;
+      }
+      if ((*found)->operator_enabled == enabled) {
+        message = drone_id + (enabled ? " is already in the swarm" : " is already OFF");
+        return false;
+      }
+      (*found)->operator_enabled = enabled;
+      owns_route = current_routes_.count(drone_id) != 0 ||
+        provisional_routes_.count(drone_id) != 0;
+      status_message_ = enabled ? drone_id + " rejoined the swarm" :
+        drone_id + " marked OFF and excluded from routing";
+      message = status_message_;
+    }
+
+    if (!enabled && owns_route) {
+      std::string cancel_message;
+      if (cancelActiveMission(cancel_message)) {
+        message += "; " + cancel_message;
+        std::lock_guard<std::mutex> lock(mutex_);
+        status_message_ = message;
+      }
+    }
+    RCLCPP_WARN(get_logger(), "%s", message.c_str());
+    return true;
+  }
+
+  bool setDroneLidarRange(
+    const std::string & drone_id,
+    double range_m,
+    std::string & message)
+  {
+    if (drone_id.empty()) {
+      message = "drone_id is required for a LiDAR range command";
+      return false;
+    }
+    if (!std::isfinite(range_m) || range_m < min_lidar_range_m_ ||
+      range_m > max_lidar_range_m_)
+    {
+      std::ostringstream reason;
+      reason << "LiDAR range must be between " << min_lidar_range_m_ << " and "
+             << max_lidar_range_m_ << " m";
+      message = reason.str();
+      return false;
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const auto found = std::find_if(
+        drones_.begin(), drones_.end(),
+        [&drone_id](const auto & drone) {return drone->id == drone_id;});
+      if (found == drones_.end()) {
+        message = "unknown drone: " + drone_id;
+        return false;
+      }
+      if (!(*found)->has_lidar) {
+        message = drone_id + " does not report a LiDAR";
+        return false;
+      }
+      (*found)->lidar_range_m = range_m;
+      std::ostringstream confirmation;
+      confirmation << "set " << drone_id << " active LiDAR/APF range to " << range_m << " m";
+      message = confirmation.str();
+      status_message_ = message;
+    }
+
+    publishLidarRangeCommand(drone_id, range_m);
+    RCLCPP_INFO(get_logger(), "%s", message.c_str());
+    return true;
+  }
+
+  bool landDrones(const std::string & selected_drone_id, std::string & message)
+  {
+    std::vector<std::string> selected_drones;
+    bool mission_active = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const auto current_time = now();
+      for (const auto & drone : drones_) {
+        if (!selected_drone_id.empty() && drone->id != selected_drone_id) continue;
+        if (droneHealthy(*drone, current_time)) selected_drones.push_back(drone->id);
+      }
+      if (selected_drones.empty()) {
+        message = selected_drone_id.empty() ?
+          "no enabled and connected drones are ready to land" :
+          "selected drone is unknown, OFF, disconnected, or not localized";
+        return false;
+      }
+      mission_active = !current_routes_.empty() || !provisional_routes_.empty();
+    }
+
+    if (mission_active) {
+      std::string cancel_message;
+      if (!cancelActiveMission(cancel_message)) {
+        message = "could not cancel the active mission before landing";
+        return false;
+      }
+    }
+    publishFlightCommand(SwarmMissionCommand::LAND, selected_drones);
+    message = "landing command sent to " + std::to_string(selected_drones.size()) + " drone(s)";
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      status_message_ = message;
+    }
+    RCLCPP_INFO(get_logger(), "%s", message.c_str());
+    return true;
+  }
+
+  bool sendFlightControlCommand(
+    uint8_t command_type,
+    const std::string & selected_drone_id,
+    double takeoff_altitude_m,
+    double takeoff_climb_speed_m_s,
+    std::string & message)
+  {
+    if (command_type == SwarmMissionCommand::TAKEOFF &&
+      (!std::isfinite(takeoff_altitude_m) || takeoff_altitude_m <= min_altitude_m_ ||
+      !std::isfinite(takeoff_climb_speed_m_s) || takeoff_climb_speed_m_s <= 0.0))
+    {
+      message = "takeoff altitude and climb speed must be valid positive values";
+      return false;
+    }
+
+    std::vector<std::string> selected_drones;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const auto current_time = now();
+      for (const auto & drone : drones_) {
+        if (!selected_drone_id.empty() && drone->id != selected_drone_id) continue;
+        if (droneHealthy(*drone, current_time)) selected_drones.push_back(drone->id);
+      }
+    }
+    if (selected_drones.empty()) {
+      message = selected_drone_id.empty() ?
+        "no enabled and connected drones are ready" :
+        "selected drone is unknown, OFF, disconnected, or not localized";
+      return false;
+    }
+
+    publishFlightCommand(
+      command_type, selected_drones, takeoff_altitude_m, takeoff_climb_speed_m_s);
+    const std::string command_name = command_type == SwarmMissionCommand::ARM ?
+      "arm" : "takeoff";
+    message = command_name + " command sent to " +
+      std::to_string(selected_drones.size()) + " drone(s)";
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      status_message_ = message;
+    }
+    RCLCPP_INFO(get_logger(), "%s", message.c_str());
+    return true;
   }
 
   void removeTarget(
@@ -519,6 +782,7 @@ private:
 
   bool droneHealthy(const DroneRecord & drone, const rclcpp::Time & current_time) const
   {
+    if (!drone.operator_enabled) return false;
     const bool state_fresh = drone.have_state && drone.state.position_valid &&
       (current_time - drone.last_update).seconds() <= drone_state_timeout_s_;
     if (!state_fresh) return false;
@@ -623,6 +887,9 @@ private:
       geometry_msgs::msg::Point previous_position = drone->state.position_enu;
       for (const auto target_index : route_plan.target_indices) {
         route.targets.push_back(targets[target_index]);
+        if (drone->has_speed_override) {
+          route.targets.back().cruise_speed_m_s = drone->speed_override_m_s;
+        }
         route.leg_costs.push_back(pointDistance(
           previous_position, targets[target_index].target.pose.position));
         previous_position = targets[target_index].target.pose.position;
@@ -711,6 +978,9 @@ private:
           drone->geofence_origin.z + home_altitude_above_origin_m_;
         target.target.pose.orientation.w = 1.0;
         target.cruise_speed_m_s = home_cruise_speed_m_s_;
+        if (drone->has_speed_override) {
+          target.cruise_speed_m_s = drone->speed_override_m_s;
+        }
         target.use_fixed_wing = home_use_fixed_wing_;
         target.preserve_on_cancel = false;
 
@@ -828,6 +1098,65 @@ private:
     RCLCPP_WARN(
       get_logger(), "Broadcast CANCEL command %lu for mission %lu revision %u",
       command.command_id, mission_id, revision);
+  }
+
+  void publishSpeedCommand(
+    const std::string & drone_id,
+    double speed_m_s,
+    bool clear_override)
+  {
+    SwarmMissionCommand command;
+    command.header.stamp = now();
+    command.header.frame_id = map_frame_;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      command.command_id = next_command_id_++;
+      command.mission_id = active_mission_id_;
+      command.revision = active_revision_;
+    }
+    command.command = SwarmMissionCommand::SET_SPEED;
+    command.target_drone_ids.push_back(drone_id);
+    command.cruise_speed_m_s = clear_override ? 0.0 : speed_m_s;
+    mission_command_pub_->publish(command);
+  }
+
+  void publishLidarRangeCommand(const std::string & drone_id, double range_m)
+  {
+    SwarmMissionCommand command;
+    command.header.stamp = now();
+    command.header.frame_id = map_frame_;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      command.command_id = next_command_id_++;
+      command.mission_id = active_mission_id_;
+      command.revision = active_revision_;
+    }
+    command.command = SwarmMissionCommand::SET_LIDAR_RANGE;
+    command.target_drone_ids.push_back(drone_id);
+    command.lidar_range_m = range_m;
+    mission_command_pub_->publish(command);
+  }
+
+  void publishFlightCommand(
+    uint8_t command_type,
+    const std::vector<std::string> & target_drone_ids,
+    double takeoff_altitude_m = 0.0,
+    double takeoff_climb_speed_m_s = 0.0)
+  {
+    SwarmMissionCommand command;
+    command.header.stamp = now();
+    command.header.frame_id = map_frame_;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      command.command_id = next_command_id_++;
+      command.mission_id = active_mission_id_;
+      command.revision = active_revision_;
+    }
+    command.command = command_type;
+    command.target_drone_ids = target_drone_ids;
+    command.takeoff_altitude_m = takeoff_altitude_m;
+    command.takeoff_climb_speed_m_s = takeoff_climb_speed_m_s;
+    mission_command_pub_->publish(command);
   }
 
   std::shared_ptr<DroneRecord> findDrone(const std::string & drone_id) const
@@ -1168,6 +1497,7 @@ private:
         drone_state.localized = drone->state.position_valid &&
           (!require_registration_ || drone->localized);
         drone_state.navigation_ready = !require_registration_ || drone->navigation_ready;
+        drone_state.operator_enabled = drone->operator_enabled;
         drone_state.busy = drone->busy;
         drone_state.available = droneHealthy(*drone, current_time) && !drone->busy;
         drone_state.armed = drone->state.armed;
@@ -1175,6 +1505,9 @@ private:
         drone_state.has_lidar = drone->has_lidar;
         drone_state.supports_fixed_wing = drone->supports_fixed_wing;
         drone_state.supports_vtol = drone->supports_vtol;
+        drone_state.has_speed_override = drone->has_speed_override;
+        drone_state.speed_override_m_s = drone->speed_override_m_s;
+        drone_state.lidar_range_m = drone->lidar_range_m;
         drone_state.last_update_age_sec = drone->have_state ?
           std::max(0.0, (current_time - drone->last_update).seconds()) :
           std::numeric_limits<double>::infinity();
@@ -1239,8 +1572,13 @@ private:
   double lease_timeout_s_ {3.0};
   std::size_t route_improvement_passes_ {50};
   double home_altitude_above_origin_m_ {15.0};
-  double home_cruise_speed_m_s_ {20.0};
+  double home_cruise_speed_m_s_ {15.0};
   bool home_use_fixed_wing_ {true};
+  double min_drone_speed_m_s_ {10.0};
+  double max_drone_speed_m_s_ {20.0};
+  double min_lidar_range_m_ {70.0};
+  double max_lidar_range_m_ {300.0};
+  double default_lidar_range_m_ {70.0};
   std::vector<double> no_fly_zone_values_;
   uint64_t next_target_id_ {1};
   uint64_t next_route_token_ {1};

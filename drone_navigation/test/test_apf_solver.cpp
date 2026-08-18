@@ -50,6 +50,33 @@ TEST(ApfSolver, RespectsFixedWingMaximumYaw)
     parameters.fw_max_avoid_yaw_rad + 1e-6);
 }
 
+TEST(ApfSolver, StartsFixedWingAvoidanceForObstacleAtOneHundredFiftyMeters)
+{
+  ApfParameters parameters;
+  parameters.obstacle_influence_radius_m = 200.0;
+  parameters.fw_avoid_trigger_distance_m = 190.0;
+  ApfSolver solver(parameters);
+
+  const auto result = solver.update(
+    {20.0, 0.0, 0.0}, {{150.0, 0.0, 0.0}}, FlightMode::FIXED_WING, 0.0);
+
+  EXPECT_TRUE(result.center_blocked);
+  EXPECT_TRUE(result.avoidance_active);
+  EXPECT_DOUBLE_EQ(result.nearest_path_obstacle_distance_m, 150.0);
+}
+
+TEST(ApfSolver, DefaultRangeIgnoresObstacleBeyondSeventyMeters)
+{
+  ApfSolver solver;
+
+  const auto result = solver.update(
+    {15.0, 0.0, 0.0}, {{80.0, 0.0, 0.0}}, FlightMode::FIXED_WING, 0.0);
+
+  EXPECT_FALSE(result.center_blocked);
+  EXPECT_FALSE(result.avoidance_active);
+  EXPECT_FALSE(std::isfinite(result.nearest_path_obstacle_distance_m));
+}
+
 TEST(ApfSolver, UsesSixtyDegreeFrontSector)
 {
   constexpr double degrees_to_radians = M_PI / 180.0;

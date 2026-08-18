@@ -13,8 +13,13 @@ swarm_coordinator:
     geofence.min_altitude_m: 2.0
     geofence.cube_size_m: 2000.0
     home.altitude_above_origin_m: 15.0
-    home.cruise_speed_m_s: 20.0
+    home.cruise_speed_m_s: 15.0
     home.use_fixed_wing: true
+    speed_override.min_m_s: 10.0
+    speed_override.max_m_s: 20.0
+    lidar_range.default_m: 70.0
+    lidar_range.min_m: 70.0
+    lidar_range.max_m: 300.0
 
 swarm_operator:
   ros__parameters:
@@ -22,5 +27,5 @@ swarm_operator:
     drone_namespaces: [/drone_1, /drone_2, /drone_3]
     takeoff_altitude_m: 15.0
     takeoff_climb_speed_m_s: 2.0
-    cruise_speed_m_s: 20.0
+    cruise_speed_m_s: 15.0
     use_fixed_wing: true

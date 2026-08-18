@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_set>
 
@@ -11,6 +12,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
+#include <std_msgs/msg/float64.hpp>
 #include <tf2/exceptions.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
@@ -29,7 +31,11 @@ public:
     output_frame_ = declare_parameter<std::string>("output_frame", "map");
     min_range_m_ = std::max(0.0, declare_parameter<double>("min_range_m", 0.3));
     max_range_m_ = std::max(
-      min_range_m_, declare_parameter<double>("max_range_m", 78.0));
+      min_range_m_, declare_parameter<double>("max_range_m", 70.0));
+    min_commanded_range_m_ = std::max(
+      min_range_m_, declare_parameter<double>("commanded_range.min_m", 70.0));
+    max_commanded_range_m_ = std::max(
+      min_commanded_range_m_, declare_parameter<double>("commanded_range.max_m", 300.0));
     ground_height_m_ = declare_parameter<double>("ground_height_m", 0.4);
     voxel_size_m_ = std::max(0.0, declare_parameter<double>("voxel_size_m", 0.2));
 
@@ -37,6 +43,10 @@ public:
     cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
       input_topic_, qos, std::bind(&LidarProcessorNode::onCloud, this, _1));
     cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(output_topic_, qos);
+    range_sub_ = create_subscription<std_msgs::msg::Float64>(
+      "/perception/lidar_range_override",
+      rclcpp::QoS(1).reliable().transient_local(),
+      std::bind(&LidarProcessorNode::onRangeCommand, this, _1));
 
     RCLCPP_INFO(
       get_logger(), "Lidar processor: %s -> %s in %s, range %.1f-%.1fm, voxel %.2fm",
@@ -45,6 +55,23 @@ public:
   }
 
 private:
+  void onRangeCommand(const std_msgs::msg::Float64::SharedPtr message)
+  {
+    if (!std::isfinite(message->data) || message->data < min_commanded_range_m_ ||
+      message->data > max_commanded_range_m_)
+    {
+      RCLCPP_WARN(
+        get_logger(), "Rejected LiDAR range %.1f m; expected %.1f-%.1f m",
+        message->data, min_commanded_range_m_, max_commanded_range_m_);
+      return;
+    }
+    {
+      std::lock_guard<std::mutex> lock(range_mutex_);
+      max_range_m_ = message->data;
+    }
+    RCLCPP_INFO(get_logger(), "Active LiDAR obstacle range set to %.1f m", message->data);
+  }
+
   struct VoxelKey
   {
     int64_t x;
@@ -122,8 +149,13 @@ private:
     sensor_msgs::PointCloud2Iterator<float> output_z(output, "z");
 
     std::unordered_set<VoxelKey, VoxelHash> occupied_voxels;
+    double max_range_m = 0.0;
+    {
+      std::lock_guard<std::mutex> lock(range_mutex_);
+      max_range_m = max_range_m_;
+    }
     const double min_range_squared = min_range_m_ * min_range_m_;
-    const double max_range_squared = max_range_m_ * max_range_m_;
+    const double max_range_squared = max_range_m * max_range_m;
     std::size_t kept = 0;
     sensor_msgs::PointCloud2ConstIterator<float> x(*cloud, "x");
     sensor_msgs::PointCloud2ConstIterator<float> y(*cloud, "y");
@@ -166,12 +198,16 @@ private:
   std::string output_topic_;
   std::string output_frame_;
   double min_range_m_ {0.3};
-  double max_range_m_ {78.0};
+  std::mutex range_mutex_;
+  double max_range_m_ {70.0};
+  double min_commanded_range_m_ {70.0};
+  double max_commanded_range_m_ {300.0};
   double ground_height_m_ {0.4};
   double voxel_size_m_ {0.2};
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr range_sub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub_;
 };
 

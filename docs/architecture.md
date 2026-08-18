@@ -166,12 +166,14 @@ mode, then press `ADD TARGET`. Targets stay pending until `CALCULATE` or
 mission cancel, swarm or per-drone arm/takeoff/home, dynamic drone cards, route
 progress, nominal/flown paths, and APF vectors.
 
-Each target stores its own `CRUISE SPEED (m/s)` and passes it unchanged through
-the coordinator route to the existing `NavigateTo` action. Drone cards and map
+Each target stores its own `CRUISE SPEED (m/s)` and passes it through the
+coordinator route to the existing `NavigateTo` action. Each drone card also has
+an optional live speed override. The coordinator broadcasts that typed command,
+every route executor filters it by `drone_id`, and the selected drone updates its
+local navigation command without restarting the route. `AUTO` clears the
+override and returns to each route target's stored speed. Drone cards and map
 labels show the measured 3D speed from the namespaced `VehicleState` velocity.
-To change the requested speed safely, set it while adding the target and use
-`CALCULATE`/`RECALCULATE`; the dashboard does not bypass the navigation server
-with direct PX4 velocity commands.
+The dashboard never publishes a direct PX4 velocity command.
 
 `HOME ALL` or a per-drone `HOME` replaces the current coordinated mission.
 Unfinished mission targets return to the pending buffer before the selected
