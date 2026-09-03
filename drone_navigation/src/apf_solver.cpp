@@ -10,9 +10,10 @@ namespace drone_navigation
 namespace
 {
 
-constexpr std::size_t kYawBins = 31;
+constexpr std::size_t kYawBins = 91;
 constexpr std::size_t kPitchBins = 17;
-constexpr double kFrontSectorHalfAngleRad = 1.0471975512;
+constexpr double kPi = 3.14159265358979323846;
+constexpr double kTwoPi = 2.0 * kPi;
 
 double norm(const Vec3 & value)
 {
@@ -51,10 +52,85 @@ ApfParameters validated(ApfParameters parameters)
   parameters.mc_max_climb_speed_m_s =
     std::max(0.2, parameters.mc_max_climb_speed_m_s);
   parameters.clear_hold_time_s = std::max(0.2, parameters.clear_hold_time_s);
+  parameters.sector_margin_min_rad = std::clamp(
+    parameters.sector_margin_min_rad, 0.0, kPi);
+  parameters.sector_margin_max_rad = std::clamp(
+    parameters.sector_margin_max_rad,
+    parameters.sector_margin_min_rad, kPi);
+  parameters.sector_margin_speed_min_m_s = std::max(
+    0.0, parameters.sector_margin_speed_min_m_s);
+  parameters.sector_margin_speed_max_m_s = std::max(
+    parameters.sector_margin_speed_min_m_s + 0.01,
+    parameters.sector_margin_speed_max_m_s);
+  parameters.direction_min_speed_m_s = std::max(
+    0.0, parameters.direction_min_speed_m_s);
+  parameters.emergency_radius_m = std::clamp(
+    parameters.emergency_radius_m, 0.1,
+    parameters.obstacle_influence_radius_m);
   return parameters;
 }
 
 }  // namespace
+
+double normalizeAngle(double angle_rad)
+{
+  return std::remainder(angle_rad, kTwoPi);
+}
+
+ActiveSector calculateActiveSector(
+  const Vec3 & current_velocity, const Vec3 & desired_velocity,
+  double vehicle_heading_enu_rad, const ApfParameters & input_parameters)
+{
+  const auto parameters = validated(input_parameters);
+  ActiveSector sector;
+  const double current_speed = std::hypot(current_velocity.x, current_velocity.y);
+  const double desired_speed = std::hypot(desired_velocity.x, desired_velocity.y);
+  const bool current_valid = std::isfinite(current_speed) &&
+    current_speed >= parameters.direction_min_speed_m_s;
+  const bool desired_valid = std::isfinite(desired_speed) &&
+    desired_speed >= parameters.direction_min_speed_m_s;
+  const double heading = std::isfinite(vehicle_heading_enu_rad) ?
+    normalizeAngle(vehicle_heading_enu_rad) : 0.0;
+
+  if (current_valid) {
+    sector.current_direction_rad = std::atan2(current_velocity.y, current_velocity.x);
+  } else if (desired_valid) {
+    sector.current_direction_rad = std::atan2(desired_velocity.y, desired_velocity.x);
+    sector.current_uses_fallback = true;
+  } else {
+    sector.current_direction_rad = heading;
+    sector.current_uses_fallback = true;
+  }
+
+  if (desired_valid) {
+    sector.desired_direction_rad = std::atan2(desired_velocity.y, desired_velocity.x);
+  } else {
+    sector.desired_direction_rad = sector.current_direction_rad;
+    sector.desired_uses_fallback = true;
+  }
+
+  const double margin_speed = std::isfinite(current_speed) ? current_speed : 0.0;
+  const double interpolation = std::clamp(
+    (margin_speed - parameters.sector_margin_speed_min_m_s) /
+    (parameters.sector_margin_speed_max_m_s - parameters.sector_margin_speed_min_m_s),
+    0.0, 1.0);
+  sector.margin_rad = parameters.sector_margin_min_rad + interpolation *
+    (parameters.sector_margin_max_rad - parameters.sector_margin_min_rad);
+  const double shortest_delta = normalizeAngle(
+    sector.desired_direction_rad - sector.current_direction_rad);
+  sector.center_rad = normalizeAngle(
+    sector.current_direction_rad + 0.5 * shortest_delta);
+  sector.half_width_rad = std::min(
+    kPi, 0.5 * std::fabs(shortest_delta) + sector.margin_rad);
+  return sector;
+}
+
+bool angleInsideSector(double angle_rad, const ActiveSector & sector)
+{
+  if (!std::isfinite(angle_rad)) return false;
+  return std::fabs(normalizeAngle(angle_rad - sector.center_rad)) <=
+         sector.half_width_rad + 1e-12;
+}
 
 ApfSolver::ApfSolver(ApfParameters parameters)
 : parameters_(validated(parameters))
@@ -74,11 +150,14 @@ void ApfSolver::reset()
 }
 
 ApfResult ApfSolver::update(
-  const Vec3 & desired, const std::vector<Vec3> & obstacles,
+  const Vec3 & desired, const Vec3 & current_velocity,
+  double vehicle_heading_enu_rad, const std::vector<Vec3> & obstacles,
   FlightMode mode, double time_s)
 {
   ApfResult result;
   result.safe_velocity = desired;
+  result.active_sector = calculateActiveSector(
+    current_velocity, desired, vehicle_heading_enu_rad, parameters_);
   const double desired_speed = norm(desired);
   const double desired_horizontal = std::hypot(desired.x, desired.y);
   if (desired_speed < 0.05 || desired_horizontal < 0.05) {
@@ -100,9 +179,10 @@ ApfResult ApfSolver::update(
   std::array<Vec3, bin_count> bin_point{};
   bin_distance.fill(std::numeric_limits<double>::infinity());
 
-  const double corridor = mode == FlightMode::FIXED_WING ?
-    parameters_.fw_corridor_half_width_m : parameters_.mc_corridor_half_width_m;
   bool structure_ahead = false;
+  bool emergency_obstacle_detected = false;
+  double nearest_relevant_obstacle_distance_m =
+    std::numeric_limits<double>::infinity();
   double highest_center_elevation = -1.5707963268;
 
   for (const auto & point : obstacles) {
@@ -113,18 +193,27 @@ ApfResult ApfSolver::update(
       continue;
     }
 
+    const double obstacle_angle = std::atan2(point.y, point.x);
+    const bool emergency = distance < parameters_.emergency_radius_m;
+    if (!emergency && !angleInsideSector(obstacle_angle, result.active_sector)) {
+      result.sector_ignored_obstacles.push_back(point);
+      continue;
+    }
     const double along = point.x * forward.x + point.y * forward.y;
     const double signed_lateral = point.x * left.x + point.y * left.y;
     const double lateral = std::fabs(signed_lateral);
     const double horizontal_distance = std::hypot(along, lateral);
     const double yaw = std::atan2(signed_lateral, along);
     const double pitch = std::atan2(point.z, horizontal_distance);
-    if (along <= 0.3 || std::fabs(yaw) >= kFrontSectorHalfAngleRad || lateral > corridor ||
-      std::fabs(pitch) > parameters_.lidar_vertical_half_fov_rad)
+    if (!emergency && std::fabs(pitch) > parameters_.lidar_vertical_half_fov_rad)
     {
       continue;
     }
 
+    result.used_obstacles.push_back(point);
+    emergency_obstacle_detected = emergency_obstacle_detected || emergency;
+    nearest_relevant_obstacle_distance_m = std::min(
+      nearest_relevant_obstacle_distance_m, distance);
     structure_ahead = true;
     const double path_offset = std::hypot(signed_lateral, point.z);
     if (lateral <= parameters_.clearance_radius_m) {
@@ -136,8 +225,7 @@ ApfResult ApfSolver::update(
         result.nearest_path_obstacle_distance_m, distance);
     }
 
-    const double normalized_yaw =
-      (yaw + kFrontSectorHalfAngleRad) / (2.0 * kFrontSectorHalfAngleRad);
+    const double normalized_yaw = (yaw + kPi) / kTwoPi;
     const double normalized_pitch =
       (pitch + parameters_.lidar_vertical_half_fov_rad) /
       (2.0 * parameters_.lidar_vertical_half_fov_rad);
@@ -157,6 +245,7 @@ ApfResult ApfSolver::update(
     parameters_.fw_avoid_trigger_distance_m : parameters_.obstacle_influence_radius_m;
   const bool direct_path_blocked = result.nearest_path_obstacle_distance_m <= trigger;
   const bool obstacle_requires_avoidance =
+    emergency_obstacle_detected || nearest_relevant_obstacle_distance_m <= trigger ||
     direct_path_blocked || (avoidance_active_ && structure_ahead);
   if (obstacle_requires_avoidance) {
     avoidance_active_ = true;

@@ -57,6 +57,8 @@ public:
       declare_parameter<double>("force_smoothing_alpha", 0.2), 0.01, 1.0);
     path_sample_distance_m_ = std::max(
       0.1, declare_parameter<double>("path_sample_distance", 0.5));
+    sector_marker_radius_m_ = std::max(
+      1.0, declare_parameter<double>("sector_marker_radius_m", 12.0));
 
     auto path_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
     state_sub_ = create_subscription<VehicleState>(
@@ -150,6 +152,72 @@ private:
     marker.points.push_back(origin);
     marker.points.push_back(point(
       origin.x + displayed.x, origin.y + displayed.y, origin.z + displayed.z));
+    return marker;
+  }
+
+  Marker directionArrow(
+    int id, const std::string & name, const std_msgs::msg::Header & header,
+    const geometry_msgs::msg::Point & origin, double direction_rad,
+    const std_msgs::msg::ColorRGBA & arrow_color) const
+  {
+    Marker marker;
+    marker.header = header;
+    marker.ns = name;
+    marker.id = id;
+    marker.type = Marker::ARROW;
+    marker.action = Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = 0.16;
+    marker.scale.y = 0.38;
+    marker.scale.z = 0.48;
+    marker.color = arrow_color;
+    marker.points.push_back(origin);
+    marker.points.push_back(point(
+      origin.x + sector_marker_radius_m_ * std::cos(direction_rad),
+      origin.y + sector_marker_radius_m_ * std::sin(direction_rad),
+      origin.z));
+    return marker;
+  }
+
+  Marker sectorBoundary(
+    int id, const std::string & name, const std_msgs::msg::Header & header,
+    const geometry_msgs::msg::Point & origin, double direction_rad,
+    const std_msgs::msg::ColorRGBA & line_color) const
+  {
+    Marker marker;
+    marker.header = header;
+    marker.ns = name;
+    marker.id = id;
+    marker.type = Marker::LINE_LIST;
+    marker.action = Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = 0.12;
+    marker.color = line_color;
+    marker.points.push_back(origin);
+    marker.points.push_back(point(
+      origin.x + sector_marker_radius_m_ * std::cos(direction_rad),
+      origin.y + sector_marker_radius_m_ * std::sin(direction_rad),
+      origin.z));
+    return marker;
+  }
+
+  Marker emergencySphere(
+    int id, const std_msgs::msg::Header & header,
+    const geometry_msgs::msg::Point & origin, double radius_m) const
+  {
+    Marker marker;
+    marker.header = header;
+    marker.ns = "emergency_radius";
+    marker.id = id;
+    marker.type = Marker::SPHERE;
+    marker.action = radius_m > 0.0 ? Marker::ADD : Marker::DELETE;
+    marker.pose.orientation.w = 1.0;
+    marker.pose.position = origin;
+    marker.scale.x = 2.0 * radius_m;
+    marker.scale.y = 2.0 * radius_m;
+    marker.scale.z = 2.0 * radius_m;
+    marker.color = color(1.0F, 0.25F, 0.1F);
+    marker.color.a = 0.12F;
     return marker;
   }
 
@@ -297,6 +365,22 @@ private:
       1, "repulsive", telemetry->header, origin, repulsive_, color(1.0F, 0.15F, 0.1F)));
     markers.markers.push_back(arrow(
       2, "resultant", telemetry->header, origin, safe_, color(1.0F, 0.85F, 0.1F)));
+    markers.markers.push_back(directionArrow(
+      3, "current_motion_direction", telemetry->header, origin,
+      telemetry->current_motion_direction_rad, color(0.1F, 0.8F, 1.0F)));
+    markers.markers.push_back(directionArrow(
+      4, "desired_motion_direction", telemetry->header, origin,
+      telemetry->desired_motion_direction_rad, color(1.0F, 0.2F, 0.9F)));
+    markers.markers.push_back(sectorBoundary(
+      5, "active_sector_boundaries", telemetry->header, origin,
+      telemetry->sector_center_rad - telemetry->sector_half_width_rad,
+      color(0.95F, 0.95F, 0.15F)));
+    markers.markers.push_back(sectorBoundary(
+      6, "active_sector_boundaries", telemetry->header, origin,
+      telemetry->sector_center_rad + telemetry->sector_half_width_rad,
+      color(0.95F, 0.95F, 0.15F)));
+    markers.markers.push_back(emergencySphere(
+      7, telemetry->header, origin, telemetry->emergency_radius_m));
     force_pub_->publish(markers);
   }
 
@@ -306,6 +390,7 @@ private:
   double smoothing_alpha_ {0.2};
   double path_sample_distance_m_ {0.5};
   double nominal_path_min_fw_speed_m_s_ {5.0};
+  double sector_marker_radius_m_ {12.0};
   bool have_state_ {false};
   bool actual_path_initialized_ {false};
   bool have_goal_ {false};

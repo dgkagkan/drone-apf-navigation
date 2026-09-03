@@ -18,6 +18,20 @@ route_executor -> /swarm/mission_feedback -> swarm_coordinator
 /fmu/out/* -> px4_gateway -> /vehicle/state -> control and navigation nodes
 ```
 
+`lidar_processor` keeps the available horizontal LiDAR field of view and
+publishes map-frame obstacle points. `apf_safety` selects relevant points from
+the shortest angular sector between measured horizontal velocity and the
+unmodified selected intent. The sector receives a speed-dependent margin, and
+an omnidirectional emergency radius bypasses angular rejection. The existing
+APF force equation then consumes only those selected points.
+
+Sector filtering is configured with `sector_margin_min_deg`,
+`sector_margin_max_deg`, `sector_margin_speed_min`,
+`sector_margin_speed_max`, `sector_direction_min_speed`, and
+`emergency_radius`. Its exact runtime result is available in `/apf/telemetry`.
+The `/apf/obstacles_used` and `/apf/obstacles_sector_ignored` clouds show which
+points passed or failed the angular filter.
+
 ## Packages
 
 - `drone_interfaces`: shared messages, services, and actions.

@@ -98,6 +98,13 @@ apf_safety:
     mc_speed: 4.0
     mc_climb_speed: 2.0
     avoidance_clear_hold_time: 2.0
+    sector_margin_min_deg: 15.0
+    sector_margin_max_deg: 35.0
+    sector_margin_speed_min: 3.0
+    sector_margin_speed_max: 20.0
+    sector_direction_min_speed: 0.5
+    emergency_radius: 5.0
+    debug_cloud_publish_rate_hz: 5.0
 
 navigation_server:
   ros__parameters:

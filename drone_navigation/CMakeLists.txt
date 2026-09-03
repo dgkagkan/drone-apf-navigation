@@ -39,7 +39,7 @@ add_executable(apf_safety_node src/apf_safety_node.cpp)
 target_compile_features(apf_safety_node PRIVATE cxx_std_17)
 target_link_libraries(apf_safety_node apf_solver)
 ament_target_dependencies(apf_safety_node
-  drone_interfaces rclcpp sensor_msgs std_srvs)
+  drone_interfaces rclcpp sensor_msgs std_msgs std_srvs)
 
 add_executable(apf_visualizer_node src/apf_visualizer_node.cpp)
 target_compile_features(apf_visualizer_node PRIVATE cxx_std_17)

@@ -39,6 +39,23 @@ struct ApfParameters
   double mc_max_horizontal_speed_m_s {4.0};
   double mc_max_climb_speed_m_s {2.0};
   double clear_hold_time_s {2.0};
+  double sector_margin_min_rad {0.2617993878};
+  double sector_margin_max_rad {0.6108652382};
+  double sector_margin_speed_min_m_s {3.0};
+  double sector_margin_speed_max_m_s {20.0};
+  double direction_min_speed_m_s {0.5};
+  double emergency_radius_m {5.0};
+};
+
+struct ActiveSector
+{
+  double current_direction_rad {0.0};
+  double desired_direction_rad {0.0};
+  double center_rad {0.0};
+  double half_width_rad {0.0};
+  double margin_rad {0.0};
+  bool current_uses_fallback {false};
+  bool desired_uses_fallback {false};
 };
 
 struct ApfResult
@@ -50,7 +67,20 @@ struct ApfResult
   bool center_blocked {false};
   bool vertical_escape {false};
   double nearest_path_obstacle_distance_m {std::numeric_limits<double>::infinity()};
+  ActiveSector active_sector;
+  std::vector<Vec3> used_obstacles;
+  std::vector<Vec3> sector_ignored_obstacles;
 };
+
+double normalizeAngle(double angle_rad);
+
+ActiveSector calculateActiveSector(
+  const Vec3 & current_velocity_enu,
+  const Vec3 & desired_velocity_enu,
+  double vehicle_heading_enu_rad,
+  const ApfParameters & parameters);
+
+bool angleInsideSector(double angle_rad, const ActiveSector & sector);
 
 class ApfSolver
 {
@@ -62,6 +92,8 @@ public:
 
   ApfResult update(
     const Vec3 & desired_velocity_enu,
+    const Vec3 & current_velocity_enu,
+    double vehicle_heading_enu_rad,
     const std::vector<Vec3> & obstacle_points_relative_enu,
     FlightMode mode,
     double time_s);

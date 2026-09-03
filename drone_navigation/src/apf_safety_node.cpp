@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -31,6 +32,7 @@ using drone_navigation::ApfParameters;
 using drone_navigation::ApfSolver;
 using drone_navigation::FlightMode;
 using drone_navigation::Vec3;
+using drone_navigation::calculateActiveSector;
 using std::placeholders::_1;
 using std::placeholders::_2;
 
@@ -45,6 +47,9 @@ public:
     obstacle_timeout_s_ = std::max(
       0.1, declare_parameter<double>("obstacle_timeout_s", 0.5));
     avoidance_enabled_ = declare_parameter<bool>("avoidance_enabled", true);
+    const double debug_cloud_rate_hz = std::max(
+      0.1, declare_parameter<double>("debug_cloud_publish_rate_hz", 5.0));
+    debug_cloud_publish_period_s_ = 1.0 / debug_cloud_rate_hz;
     profiles_.emplace("stable", readProfileParameters("stable", base_parameters_));
     profiles_.emplace("normal", readProfileParameters("normal", base_parameters_));
     profiles_.emplace("sport", readProfileParameters("sport", base_parameters_));
@@ -77,6 +82,10 @@ public:
     safe_pub_ = create_publisher<MotionCommand>("/motion/safe_command", 10);
     telemetry_pub_ = create_publisher<ApfTelemetry>(
       "/apf/telemetry", rclcpp::QoS(10).reliable().transient_local());
+    used_obstacles_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+      "/apf/obstacles_used", rclcpp::SensorDataQoS().keep_last(1));
+    ignored_obstacles_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+      "/apf/obstacles_sector_ignored", rclcpp::SensorDataQoS().keep_last(1));
     timer_ = create_wall_timer(
       std::chrono::milliseconds(20), std::bind(&ApfSafetyNode::onTimer, this));
 
@@ -166,6 +175,18 @@ private:
     parameters.mc_max_climb_speed_m_s = declare_parameter<double>("mc_climb_speed", 2.0);
     parameters.clear_hold_time_s =
       declare_parameter<double>("avoidance_clear_hold_time", 2.0);
+    parameters.sector_margin_min_rad =
+      declare_parameter<double>("sector_margin_min_deg", 15.0) * degrees_to_radians;
+    parameters.sector_margin_max_rad =
+      declare_parameter<double>("sector_margin_max_deg", 35.0) * degrees_to_radians;
+    parameters.sector_margin_speed_min_m_s =
+      declare_parameter<double>("sector_margin_speed_min", 3.0);
+    parameters.sector_margin_speed_max_m_s =
+      declare_parameter<double>("sector_margin_speed_max", 20.0);
+    parameters.direction_min_speed_m_s =
+      declare_parameter<double>("sector_direction_min_speed", 0.5);
+    parameters.emergency_radius_m =
+      declare_parameter<double>("emergency_radius", 5.0);
     return parameters;
   }
 
@@ -174,6 +195,7 @@ private:
     auto parameters = profiles_.at(active_mode_);
     parameters.obstacle_influence_radius_m = active_lidar_range_m_;
     parameters.fw_avoid_trigger_distance_m = std::max(1.0, active_lidar_range_m_ - 10.0);
+    active_parameters_ = parameters;
     solver_.setParameters(parameters);
   }
 
@@ -240,7 +262,40 @@ private:
       prefix + "mc_climb_speed", fallback.mc_max_climb_speed_m_s);
     parameters.clear_hold_time_s = declare_parameter<double>(
       prefix + "avoidance_clear_hold_time", fallback.clear_hold_time_s);
+    parameters.sector_margin_min_rad = fallback.sector_margin_min_rad;
+    parameters.sector_margin_max_rad = fallback.sector_margin_max_rad;
+    parameters.sector_margin_speed_min_m_s = fallback.sector_margin_speed_min_m_s;
+    parameters.sector_margin_speed_max_m_s = fallback.sector_margin_speed_max_m_s;
+    parameters.direction_min_speed_m_s = fallback.direction_min_speed_m_s;
+    parameters.emergency_radius_m = fallback.emergency_radius_m;
     return parameters;
+  }
+
+  sensor_msgs::msg::PointCloud2 makeDebugCloud(
+    const std_msgs::msg::Header & header, const std::vector<Vec3> & relative_points,
+    const VehicleState & state) const
+  {
+    sensor_msgs::msg::PointCloud2 cloud;
+    cloud.header = header;
+    cloud.header.frame_id = "map";
+    cloud.height = 1;
+    cloud.is_bigendian = false;
+    cloud.is_dense = true;
+    sensor_msgs::PointCloud2Modifier modifier(cloud);
+    modifier.setPointCloud2FieldsByString(1, "xyz");
+    modifier.resize(relative_points.size());
+    sensor_msgs::PointCloud2Iterator<float> x(cloud, "x");
+    sensor_msgs::PointCloud2Iterator<float> y(cloud, "y");
+    sensor_msgs::PointCloud2Iterator<float> z(cloud, "z");
+    for (const auto & point : relative_points) {
+      *x = static_cast<float>(point.x + state.position_enu.x);
+      *y = static_cast<float>(point.y + state.position_enu.y);
+      *z = static_cast<float>(point.z + state.position_enu.z);
+      ++x;
+      ++y;
+      ++z;
+    }
+    return cloud;
   }
 
   void publishModeTelemetry()
@@ -338,19 +393,38 @@ private:
 
     const Vec3 desired{
       command.velocity_enu.x, command.velocity_enu.y, command.velocity_enu.z};
+    const Vec3 current_velocity{
+      state.velocity_enu.x, state.velocity_enu.y, state.velocity_enu.z};
+    constexpr double half_pi = 1.5707963267948966;
+    const double heading_enu_rad = state.attitude_valid &&
+      std::isfinite(state.heading_ned_rad) ?
+      half_pi - state.heading_ned_rad : std::numeric_limits<double>::quiet_NaN();
     drone_navigation::ApfResult result;
     if (avoidance_enabled_ && !relative_points.empty()) {
       const auto mode = command.vehicle_mode == MotionCommand::MODE_FIXED_WING ?
         FlightMode::FIXED_WING : FlightMode::MULTICOPTER;
-      result = solver_.update(desired, relative_points, mode, now().seconds());
+      result = solver_.update(
+        desired, current_velocity, heading_enu_rad, relative_points,
+        mode, now().seconds());
     } else {
       solver_.reset();
+      result.active_sector = calculateActiveSector(
+        current_velocity, desired, heading_enu_rad, active_parameters_);
       result.safe_velocity = desired;
       const double speed = std::sqrt(
         desired.x * desired.x + desired.y * desired.y + desired.z * desired.z);
       if (speed > 0.05) {
         result.attractive = {desired.x / speed, desired.y / speed, desired.z / speed};
       }
+    }
+
+    if ((now() - last_debug_cloud_publish_).seconds() >= debug_cloud_publish_period_s_) {
+      const auto debug_header = command.header;
+      used_obstacles_pub_->publish(makeDebugCloud(
+        debug_header, result.used_obstacles, state));
+      ignored_obstacles_pub_->publish(makeDebugCloud(
+        debug_header, result.sector_ignored_obstacles, state));
+      last_debug_cloud_publish_ = now();
     }
 
     command.header.stamp = now();
@@ -375,16 +449,34 @@ private:
     telemetry.repulsive_force_enu.y = result.repulsive.y;
     telemetry.repulsive_force_enu.z = result.repulsive.z;
     telemetry.safe_command_enu = command.velocity_enu;
+    telemetry.current_motion_direction_rad =
+      result.active_sector.current_direction_rad;
+    telemetry.desired_motion_direction_rad =
+      result.active_sector.desired_direction_rad;
+    telemetry.sector_center_rad = result.active_sector.center_rad;
+    telemetry.sector_half_width_rad = result.active_sector.half_width_rad;
+    telemetry.sector_margin_rad = result.active_sector.margin_rad;
+    telemetry.emergency_radius_m = std::min(
+      active_parameters_.emergency_radius_m,
+      active_parameters_.obstacle_influence_radius_m);
+    telemetry.current_direction_uses_fallback =
+      result.active_sector.current_uses_fallback;
+    telemetry.desired_direction_uses_fallback =
+      result.active_sector.desired_uses_fallback;
+    telemetry.used_obstacle_count = result.used_obstacles.size();
+    telemetry.sector_ignored_obstacle_count = result.sector_ignored_obstacles.size();
     telemetry_pub_->publish(telemetry);
   }
 
   ApfParameters base_parameters_;
+  ApfParameters active_parameters_;
   ApfSolver solver_;
   std::map<std::string, ApfParameters> profiles_;
   std::string active_mode_ {"normal"};
   double command_timeout_s_ {0.5};
   double obstacle_timeout_s_ {0.5};
   double active_lidar_range_m_ {70.0};
+  double debug_cloud_publish_period_s_ {0.2};
   bool avoidance_enabled_ {true};
   std::mutex mutex_;
   MotionCommand command_;
@@ -392,6 +484,7 @@ private:
   std::vector<Vec3> obstacle_points_map_;
   rclcpp::Time command_received_ {0, 0, RCL_ROS_TIME};
   rclcpp::Time obstacles_received_ {0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_debug_cloud_publish_ {0, 0, RCL_ROS_TIME};
   bool have_command_ {false};
   bool have_state_ {false};
   bool have_obstacles_ {false};
@@ -403,6 +496,8 @@ private:
   rclcpp::Service<SetApfMode>::SharedPtr mode_service_;
   rclcpp::Publisher<MotionCommand>::SharedPtr safe_pub_;
   rclcpp::Publisher<ApfTelemetry>::SharedPtr telemetry_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr used_obstacles_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr ignored_obstacles_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

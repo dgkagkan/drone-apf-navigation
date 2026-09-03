@@ -57,6 +57,12 @@ def generate_launch_description():
         "vertical_escape_pitch_gain": "2.0",
         "apf_clearance_radius": "1.5",
         "avoidance_clear_hold_time": "2.0",
+        "sector_margin_min_deg": "15.0",
+        "sector_margin_max_deg": "35.0",
+        "sector_margin_speed_min": "3.0",
+        "sector_margin_speed_max": "20.0",
+        "sector_direction_min_speed": "0.5",
+        "emergency_radius": "5.0",
         "lidar_timeout": "0.5",
     }
     default_config = PathJoinSubstitution([
@@ -142,6 +148,12 @@ def generate_launch_description():
             "mc_speed",
             "mc_climb_speed",
             "avoidance_clear_hold_time",
+            "sector_margin_min_deg",
+            "sector_margin_max_deg",
+            "sector_margin_speed_min",
+            "sector_margin_speed_max",
+            "sector_direction_min_speed",
+            "emergency_radius",
         )
     }
     apf_parameters["obstacle_timeout_s"] = value["lidar_timeout"]

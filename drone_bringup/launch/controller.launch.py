@@ -87,6 +87,8 @@ def generate_launch_description():
         ("/apf/set_mode", "apf/set_mode"),
         ("/apf/telemetry", "apf/telemetry"),
         ("/apf/forces", "apf/forces"),
+        ("/apf/obstacles_used", "apf/obstacles_used"),
+        ("/apf/obstacles_sector_ignored", "apf/obstacles_sector_ignored"),
         ("/gimbal/cmd_pan", "gimbal/cmd_pan"),
         ("/gimbal/cmd_tilt", "gimbal/cmd_tilt"),
         ("/gimbal/joint_state", "gimbal/joint_state"),

@@ -7,3 +7,13 @@ float64 nearest_path_obstacle_distance_m
 geometry_msgs/Vector3 attractive_force_enu
 geometry_msgs/Vector3 repulsive_force_enu
 geometry_msgs/Vector3 safe_command_enu
+float64 current_motion_direction_rad
+float64 desired_motion_direction_rad
+float64 sector_center_rad
+float64 sector_half_width_rad
+float64 sector_margin_rad
+float64 emergency_radius_m
+bool current_direction_uses_fallback
+bool desired_direction_uses_fallback
+uint32 used_obstacle_count
+uint32 sector_ignored_obstacle_count
