@@ -4,8 +4,12 @@ uint32 active_target_count
 uint32 available_drone_count
 bool dispatch_in_progress
 bool mission_active
+bool plan_ready
+bool plan_is_recalculation
+uint32 planned_drone_count
 string status_message
 RouteTarget[] pending_targets
 RouteTarget[] active_targets
 SwarmDroneState[] drones
 SwarmAssignment[] assignments
+SwarmAssignment[] planned_assignments

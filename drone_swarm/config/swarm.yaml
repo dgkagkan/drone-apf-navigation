@@ -10,9 +10,27 @@ swarm_coordinator:
     heartbeat_period_sec: 0.5
     lease_timeout_sec: 3.0
     route_improvement_passes: 50
+    routing.vertical_speed_m_s: 3.0
+    routing.active_route_change_penalty_sec: 30.0
+    routing.fixed_wing_turn_rate_deg_s: 25.0
+    routing.fixed_wing_detour_factor: 1.08
+    routing.multicopter_detour_factor: 1.03
+    routing.vtol_transition_time_sec: 8.0
+    routing.multicopter_power_w: 450.0
+    routing.fixed_wing_power_w: 220.0
+    routing.vtol_transition_power_w: 650.0
+    routing.climb_power_per_m_s_w: 100.0
+    routing.multicopter_speed_power_coefficient: 2.0
+    routing.fixed_wing_reference_speed_m_s: 15.0
+    battery.low_pct: 40.0
+    battery.critical_pct: 25.0
+    battery.low_penalty_max_sec: 120.0
+    battery.flight_time_reserve_sec: 60.0
+    battery.energy_reserve_pct: 15.0
     geofence.min_altitude_m: 2.0
     geofence.cube_size_m: 2000.0
     home.altitude_above_origin_m: 15.0
+    home.precision_speed_m_s: 3.0
     home.cruise_speed_m_s: 15.0
     home.use_fixed_wing: true
     speed_override.min_m_s: 10.0

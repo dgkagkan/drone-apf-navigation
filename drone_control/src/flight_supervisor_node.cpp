@@ -39,8 +39,6 @@ public:
   {
     takeoff_tolerance_m_ = std::max(
       0.1, declare_parameter<double>("takeoff_tolerance_m", 0.5));
-    landed_altitude_m_ = std::max(
-      0.05, declare_parameter<double>("landed_altitude_m", 0.3));
     command_period_s_ = std::max(
       0.2, declare_parameter<double>("vehicle_command_period_s", 1.0));
 
@@ -223,6 +221,7 @@ private:
     operation_ = Operation::LAND;
     land_goal_ = goal_handle;
     manual_operation_ = false;
+    arm_offboard_requested_ = false;
     last_vehicle_command_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
 
@@ -255,6 +254,7 @@ private:
     if (operation_ != Operation::IDLE) return;
     operation_ = Operation::LAND;
     manual_operation_ = true;
+    arm_offboard_requested_ = false;
     last_vehicle_command_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
 
@@ -317,6 +317,8 @@ private:
 
   void processLand(const VehicleState & state)
   {
+    // Landing owns the flight mode until PX4 confirms touchdown and disarming.
+    arm_offboard_requested_ = false;
     if (land_goal_ && land_goal_->is_canceling()) {
       auto result = std::make_shared<Land::Result>();
       result->success = false;
@@ -326,6 +328,34 @@ private:
       finishOperation();
       return;
     }
+
+    if (state.landed_valid && state.landed) {
+      if (state.armed) {
+        if (commandDue()) {
+          sendCommand(VC::VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0F);
+          RCLCPP_INFO(get_logger(), "PX4 reports landed; disarm requested");
+        }
+        publishLandFeedback(state, "disarming");
+        return;
+      }
+
+      if (land_goal_) {
+        auto result = std::make_shared<Land::Result>();
+        result->success = true;
+        result->message = "landing and disarm confirmed by PX4";
+        land_goal_->succeed(result);
+      }
+      RCLCPP_INFO(get_logger(), "PX4 landing and disarm confirmed");
+      finishOperation();
+      return;
+    }
+
+    if (!state.landed_valid) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "Waiting for a fresh PX4 vehicle_land_detected state");
+    }
+
     if (state.vehicle_mode == VehicleState::MODE_FIXED_WING) {
       if (commandDue()) sendCommand(VC::VEHICLE_CMD_DO_VTOL_TRANSITION, 3.0F);
     } else if (commandDue()) {
@@ -337,22 +367,18 @@ private:
       command_pub_->publish(command);
     }
 
-    if (land_goal_) {
-      auto feedback = std::make_shared<Land::Feedback>();
-      feedback->phase = state.vehicle_mode == VehicleState::MODE_FIXED_WING ?
-        "transitioning to multicopter" : "landing";
-      feedback->current_altitude_m = state.position_enu.z;
-      land_goal_->publish_feedback(feedback);
-    }
-    if (!state.armed || state.position_enu.z <= landed_altitude_m_) {
-      if (land_goal_) {
-        auto result = std::make_shared<Land::Result>();
-        result->success = true;
-        result->message = "landing complete";
-        land_goal_->succeed(result);
-      }
-      finishOperation();
-    }
+    publishLandFeedback(
+      state, state.vehicle_mode == VehicleState::MODE_FIXED_WING ?
+      "transitioning to multicopter" : "landing");
+  }
+
+  void publishLandFeedback(const VehicleState & state, const std::string & phase)
+  {
+    if (!land_goal_) return;
+    auto feedback = std::make_shared<Land::Feedback>();
+    feedback->phase = phase;
+    feedback->current_altitude_m = state.position_enu.z;
+    land_goal_->publish_feedback(feedback);
   }
 
   void processTransition(const VehicleState & state)
@@ -405,7 +431,9 @@ private:
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!have_state_) return;
-    if (operation_ != Operation::TAKEOFF) processArmOffboard(state_);
+    if (operation_ != Operation::TAKEOFF && operation_ != Operation::LAND) {
+      processArmOffboard(state_);
+    }
     switch (operation_) {
       case Operation::TAKEOFF:
         processTakeoff(state_);
@@ -423,7 +451,6 @@ private:
   }
 
   double takeoff_tolerance_m_ {0.5};
-  double landed_altitude_m_ {0.3};
   double command_period_s_ {1.0};
   mutable std::mutex mutex_;
   Operation operation_ {Operation::IDLE};

@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -14,6 +13,7 @@
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <tf2/exceptions.h>
+#include <tf2/time.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -127,8 +127,7 @@ private:
     geometry_msgs::msg::TransformStamped transform;
     try {
       transform = tf_buffer_.lookupTransform(
-        output_frame_, cloud->header.frame_id, cloud->header.stamp,
-        std::chrono::milliseconds(50));
+        output_frame_, cloud->header.frame_id, tf2::TimePointZero);
     } catch (const tf2::TransformException & error) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 2000, "LiDAR TF unavailable: %s", error.what());

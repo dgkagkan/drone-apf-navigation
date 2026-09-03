@@ -7,10 +7,12 @@
 
 #include <drone_interfaces/msg/motion_command.hpp>
 #include <drone_interfaces/msg/vehicle_state.hpp>
+#include <px4_msgs/msg/battery_status.hpp>
 #include <px4_msgs/msg/offboard_control_mode.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_attitude.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
+#include <px4_msgs/msg/vehicle_land_detected.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/vehicle_status.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -29,6 +31,8 @@ public:
   {
     command_timeout_s_ = std::max(
       0.1, declare_parameter<double>("command_timeout_s", 0.5));
+    land_detected_timeout_s_ = std::max(
+      0.2, declare_parameter<double>("land_detected_timeout_s", 1.0));
     fw_lookahead_m_ = std::max(
       5.0, declare_parameter<double>("fw_lookahead_m", 40.0));
     max_horizontal_speed_m_s_ = std::max(
@@ -47,12 +51,19 @@ public:
     status_sub_ = create_subscription<VS>(
       "/fmu/out/vehicle_status_v4", px4_qos,
       std::bind(&Px4GatewayNode::onStatus, this, _1));
+    land_detected_sub_ =
+      create_subscription<px4_msgs::msg::VehicleLandDetected>(
+      "/fmu/out/vehicle_land_detected", px4_qos,
+      std::bind(&Px4GatewayNode::onLandDetected, this, _1));
     position_sub_ = create_subscription<px4_msgs::msg::VehicleLocalPosition>(
       "/fmu/out/vehicle_local_position_v1", px4_qos,
       std::bind(&Px4GatewayNode::onPosition, this, _1));
     attitude_sub_ = create_subscription<px4_msgs::msg::VehicleAttitude>(
       "/fmu/out/vehicle_attitude", px4_qos,
       std::bind(&Px4GatewayNode::onAttitude, this, _1));
+    battery_sub_ = create_subscription<px4_msgs::msg::BatteryStatus>(
+      "/fmu/out/battery_status_v1", px4_qos,
+      std::bind(&Px4GatewayNode::onBattery, this, _1));
     safe_command_sub_ = create_subscription<MotionCommand>(
       "/motion/safe_command", 10,
       std::bind(&Px4GatewayNode::onSafeCommand, this, _1));
@@ -96,10 +107,23 @@ private:
     have_position_ = true;
   }
 
+  void onLandDetected(const px4_msgs::msg::VehicleLandDetected::SharedPtr message)
+  {
+    land_detected_ = *message;
+    land_detected_received_ = now();
+    have_land_detected_ = true;
+  }
+
   void onAttitude(const px4_msgs::msg::VehicleAttitude::SharedPtr message)
   {
     attitude_ = *message;
     have_attitude_ = true;
+  }
+
+  void onBattery(const px4_msgs::msg::BatteryStatus::SharedPtr message)
+  {
+    battery_ = *message;
+    have_battery_ = true;
   }
 
   void onSafeCommand(const MotionCommand::SharedPtr message)
@@ -138,7 +162,11 @@ private:
     state.attitude_valid = have_attitude_;
     state.armed = have_status_ && status_.arming_state == VS::ARMING_STATE_ARMED;
     state.offboard = have_status_ && status_.nav_state == VS::NAVIGATION_STATE_OFFBOARD;
+    state.landed_valid = have_land_detected_ &&
+      (now() - land_detected_received_).seconds() <= land_detected_timeout_s_;
+    state.landed = state.landed_valid && land_detected_.landed;
     state.vehicle_mode = currentMode();
+    state.battery_warning = VehicleState::BATTERY_WARNING_UNKNOWN;
     if (have_position_) {
       state.position_enu.x = map_origin_east_m_ + position_.y;
       state.position_enu.y = map_origin_north_m_ + position_.x;
@@ -153,6 +181,25 @@ private:
       state.attitude_body_to_ned.x = attitude_.q[1];
       state.attitude_body_to_ned.y = attitude_.q[2];
       state.attitude_body_to_ned.z = attitude_.q[3];
+    }
+    if (have_battery_) {
+      state.battery_connected = battery_.connected;
+      state.battery_valid = battery_.connected && std::isfinite(battery_.remaining) &&
+        battery_.remaining >= 0.0F && battery_.remaining <= 1.0F;
+      if (state.battery_valid) {
+        state.battery_remaining_pct = 100.0 * battery_.remaining;
+      }
+      state.battery_time_remaining_s = std::isfinite(battery_.time_remaining_s) ?
+        battery_.time_remaining_s : -1.0;
+      state.battery_voltage_v = battery_.voltage_v;
+      state.battery_current_a = battery_.current_a;
+      state.battery_power_w = battery_.voltage_v * std::max(battery_.current_a, 0.0F);
+      const double nominal_voltage_v = 3.7 * battery_.cell_count;
+      state.battery_capacity_wh = nominal_voltage_v * battery_.capacity / 1000.0;
+      state.battery_remaining_energy_wh = state.battery_valid ?
+        state.battery_capacity_wh * battery_.remaining : 0.0;
+      state.battery_warning = battery_.warning <= px4_msgs::msg::BatteryStatus::WARNING_FAILED ?
+        battery_.warning : VehicleState::BATTERY_WARNING_UNKNOWN;
     }
     state_pub_->publish(state);
   }
@@ -238,6 +285,7 @@ private:
   }
 
   double command_timeout_s_ {0.5};
+  double land_detected_timeout_s_ {1.0};
   double fw_lookahead_m_ {40.0};
   double max_horizontal_speed_m_s_ {25.0};
   double max_vertical_speed_m_s_ {5.0};
@@ -247,18 +295,25 @@ private:
   double map_origin_up_m_ {0.0};
   uint8_t target_system_ {1};
   VS status_;
+  px4_msgs::msg::VehicleLandDetected land_detected_;
   px4_msgs::msg::VehicleLocalPosition position_;
   px4_msgs::msg::VehicleAttitude attitude_;
+  px4_msgs::msg::BatteryStatus battery_;
   MotionCommand command_;
   MotionCommand last_active_command_;
   bool have_status_ {false};
+  bool have_land_detected_ {false};
   bool have_position_ {false};
   bool have_attitude_ {false};
+  bool have_battery_ {false};
   bool have_command_ {false};
   rclcpp::Time command_received_ {0, 0, RCL_ROS_TIME};
+  rclcpp::Time land_detected_received_ {0, 0, RCL_ROS_TIME};
   rclcpp::Subscription<VS>::SharedPtr status_sub_;
+  rclcpp::Subscription<px4_msgs::msg::VehicleLandDetected>::SharedPtr land_detected_sub_;
   rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr position_sub_;
   rclcpp::Subscription<px4_msgs::msg::VehicleAttitude>::SharedPtr attitude_sub_;
+  rclcpp::Subscription<px4_msgs::msg::BatteryStatus>::SharedPtr battery_sub_;
   rclcpp::Subscription<MotionCommand>::SharedPtr safe_command_sub_;
   rclcpp::Subscription<VC>::SharedPtr vehicle_command_sub_;
   rclcpp::Publisher<VehicleState>::SharedPtr state_pub_;

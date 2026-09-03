@@ -35,6 +35,9 @@ public:
     map_frame_  = declare_parameter<std::string>("map_frame", "map");
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
     use_ground_truth_ = declare_parameter<bool>("use_ground_truth", true);
+    map_origin_east_m_ = declare_parameter<double>("map_origin_east_m", 0.0);
+    map_origin_north_m_ = declare_parameter<double>("map_origin_north_m", 0.0);
+    map_origin_up_m_ = declare_parameter<double>("map_origin_up_m", 0.0);
     const auto ground_truth_topic = declare_parameter<std::string>(
       "ground_truth_topic", "/drone/ground_truth/odometry");
 
@@ -59,9 +62,10 @@ public:
     }
 
     RCLCPP_INFO(
-      get_logger(), "Vehicle TF: %s -> %s from %s",
+      get_logger(), "Vehicle TF: %s -> %s from %s; map origin=(%.1f, %.1f, %.1f) m",
       map_frame_.c_str(), base_frame_.c_str(),
-      use_ground_truth_ ? "Gazebo ground truth" : "PX4 estimator");
+      use_ground_truth_ ? "world ground truth" : "PX4 estimator",
+      map_origin_east_m_, map_origin_north_m_, map_origin_up_m_);
   }
 
 private:
@@ -124,10 +128,11 @@ private:
       return;  // wait until the estimator has a valid local position
     }
 
-    // NED -> ENU position
-    east_ = msg->y;
-    north_ = msg->x;
-    altitude_ = -msg->z;
+    // PX4 local NED -> shared map ENU. Each PX4 estimator starts at its own
+    // local zero, so the configured spawn/home origin must be restored here.
+    east_ = map_origin_east_m_ + msg->y;
+    north_ = map_origin_north_m_ + msg->x;
+    altitude_ = map_origin_up_m_ - msg->z;
     heading_ned_ = msg->heading;
     have_position_ = true;
 
@@ -166,6 +171,9 @@ private:
   std::string map_frame_;
   std::string base_frame_;
   bool use_ground_truth_ {true};
+  double map_origin_east_m_ {0.0};
+  double map_origin_north_m_ {0.0};
+  double map_origin_up_m_ {0.0};
   bool have_att_ {false};
   bool have_position_ {false};
   double east_ {0.0};

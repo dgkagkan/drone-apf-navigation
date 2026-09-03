@@ -1,6 +1,8 @@
 geometry_msgs/PoseStamped target
 float64 cruise_speed_m_s
 bool use_fixed_wing
+float64 horizontal_tolerance_m
+float64 altitude_tolerance_m
 ---
 uint8 SUCCEEDED=0
 uint8 CANCELED=1

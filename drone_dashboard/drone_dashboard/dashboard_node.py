@@ -33,6 +33,7 @@ from sensor_msgs.msg import Image
 
 COMMANDS = {
     "calculate": SwarmCommand.Request.CALCULATE,
+    "start": SwarmCommand.Request.START_MISSION,
     "recalculate": SwarmCommand.Request.RECALCULATE,
     "clear": SwarmCommand.Request.CLEAR_PENDING_TARGETS,
     "cancel": SwarmCommand.Request.CANCEL_ACTIVE_MISSION,
@@ -138,9 +139,13 @@ class DashboardNode(Node):
             "available_drone_count": 0,
             "dispatch_in_progress": False,
             "mission_active": False,
+            "plan_ready": False,
+            "plan_is_recalculation": False,
+            "planned_drone_count": 0,
             "pending_targets": [],
             "active_targets": [],
             "assignments": [],
+            "planned_assignments": [],
             "drones": [],
             "updated_at": 0.0,
         }
@@ -190,9 +195,15 @@ class DashboardNode(Node):
             "available_drone_count": message.available_drone_count,
             "dispatch_in_progress": message.dispatch_in_progress,
             "mission_active": message.mission_active,
+            "plan_ready": message.plan_ready,
+            "plan_is_recalculation": message.plan_is_recalculation,
+            "planned_drone_count": message.planned_drone_count,
             "pending_targets": [self._target_dict(target) for target in message.pending_targets],
             "active_targets": [self._target_dict(target) for target in message.active_targets],
             "assignments": [self._assignment_dict(item) for item in message.assignments],
+            "planned_assignments": [
+                self._assignment_dict(item) for item in message.planned_assignments
+            ],
             "drones": [self._drone_dict(drone) for drone in message.drones],
             "updated_at": time.time(),
         }
@@ -488,6 +499,7 @@ class DashboardNode(Node):
             "drone_id": assignment.drone_id,
             "position": cls._point_dict(assignment.target.pose.position),
             "cost": cls._finite(assignment.cost),
+            "route_total_cost": cls._finite(assignment.route_total_cost),
             "distance_remaining_m": cls._finite(assignment.distance_remaining_m),
             "state": ASSIGNMENT_STATES.get(assignment.state, "unknown"),
             "message": assignment.message,
@@ -513,6 +525,15 @@ class DashboardNode(Node):
             "has_speed_override": drone.has_speed_override,
             "speed_override_m_s": float(drone.speed_override_m_s),
             "lidar_range_m": float(drone.lidar_range_m),
+            "battery_valid": bool(drone.battery_valid),
+            "battery_remaining_pct": cls._finite(drone.battery_remaining_pct),
+            "battery_time_remaining_s": cls._finite(drone.battery_time_remaining_s),
+            "battery_power_w": cls._finite(drone.battery_power_w),
+            "battery_capacity_wh": cls._finite(drone.battery_capacity_wh),
+            "battery_remaining_energy_wh": cls._finite(drone.battery_remaining_energy_wh),
+            "battery_state": int(drone.battery_state),
+            "safety_excluded": bool(drone.safety_excluded),
+            "return_home_active": bool(drone.return_home_active),
             "last_update_age_sec": cls._finite(drone.last_update_age_sec),
             "position": cls._point_dict(drone.position),
         }

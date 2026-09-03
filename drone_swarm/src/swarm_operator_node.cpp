@@ -149,7 +149,7 @@ private:
 
   void inputLoop()
   {
-    printLine("Swarm operator ready. Targets are buffered until CALCULATE.");
+    printLine("Swarm operator ready. CALCULATE previews routes; START dispatches them.");
     printHelp();
     printPrompt();
     std::string input_buffer;
@@ -200,6 +200,8 @@ private:
       sendCommand(SwarmCommand::Request::CALCULATE, "CALCULATE");
     } else if (command == "recalculate") {
       sendCommand(SwarmCommand::Request::RECALCULATE, "RECALCULATE");
+    } else if (command == "start" || command == "go") {
+      sendCommand(SwarmCommand::Request::START_MISSION, "START_MISSION");
     } else if (command == "clear") {
       sendCommand(SwarmCommand::Request::CLEAR_PENDING_TARGETS, "CLEAR_PENDING_TARGETS");
     } else if (command == "cancel") {
@@ -449,12 +451,19 @@ private:
            << " active=" << state.active_target_count
            << " available_drones=" << state.available_drone_count
            << " assignments=" << state.assignments.size()
+           << " planned_assignments=" << state.planned_assignments.size()
            << " | " << state.status_message;
     printLine(output.str());
     for (const auto & assignment : state.assignments) {
       std::ostringstream line;
       line << "  " << assignment.drone_id << " -> target " << assignment.target_id
            << " cost=" << assignment.cost << " | " << assignment.message;
+      printLine(line.str());
+    }
+    for (const auto & assignment : state.planned_assignments) {
+      std::ostringstream line;
+      line << "  PREVIEW " << assignment.drone_id << " -> target "
+           << assignment.target_id << " cost=" << assignment.cost;
       printLine(line.str());
     }
     for (const auto & drone : state.drones) {
@@ -475,7 +484,7 @@ private:
   {
     printLine(
       "commands: arm [drone_number] | takeoff [drone_number] | "
-      "goal <x> <y> <z> | calculate | recalculate | clear | "
+      "goal <x> <y> <z> | calculate | recalculate | start (or go) | clear | "
       "cancel | home | status | help | quit");
   }
 

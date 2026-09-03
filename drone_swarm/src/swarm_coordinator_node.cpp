@@ -31,6 +31,7 @@
 #include <drone_interfaces/srv/swarm_command.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include "drone_swarm/flight_cost_model.hpp"
 #include "drone_swarm/route_solver.hpp"
 
 using AddSwarmTarget = drone_interfaces::srv::AddSwarmTarget;
@@ -80,6 +81,8 @@ public:
       min_altitude_m_, declare_parameter<double>("home.altitude_above_origin_m", 15.0));
     home_cruise_speed_m_s_ = std::max(
       0.1, declare_parameter<double>("home.cruise_speed_m_s", 15.0));
+    home_precision_speed_m_s_ = std::max(
+      0.2, declare_parameter<double>("home.precision_speed_m_s", 3.0));
     home_use_fixed_wing_ = declare_parameter<bool>("home.use_fixed_wing", true);
     min_drone_speed_m_s_ = std::max(
       0.1, declare_parameter<double>("speed_override.min_m_s", 10.0));
@@ -92,6 +95,44 @@ public:
     default_lidar_range_m_ = std::clamp(
       declare_parameter<double>("lidar_range.default_m", 70.0),
       min_lidar_range_m_, max_lidar_range_m_);
+    battery_low_pct_ = std::clamp(
+      declare_parameter<double>("battery.low_pct", 40.0), 1.0, 100.0);
+    battery_critical_pct_ = std::clamp(
+      declare_parameter<double>("battery.critical_pct", 25.0), 1.0, battery_low_pct_);
+    battery_penalty_max_s_ = std::max(
+      0.0, declare_parameter<double>("battery.low_penalty_max_sec", 120.0));
+    battery_reserve_s_ = std::max(
+      0.0, declare_parameter<double>("battery.flight_time_reserve_sec", 60.0));
+    active_route_penalty_s_ = std::max(
+      0.0, declare_parameter<double>("routing.active_route_change_penalty_sec", 30.0));
+    routing_vertical_speed_m_s_ = std::max(
+      0.2, declare_parameter<double>("routing.vertical_speed_m_s", 3.0));
+    battery_energy_reserve_pct_ = std::clamp(
+      declare_parameter<double>("battery.energy_reserve_pct", 15.0), 0.0, 90.0);
+    FlightCostParameters flight_cost_parameters;
+    flight_cost_parameters.vertical_speed_m_s = routing_vertical_speed_m_s_;
+    flight_cost_parameters.fixed_wing_turn_rate_rad_s = std::max(
+      1.0, declare_parameter<double>("routing.fixed_wing_turn_rate_deg_s", 25.0)) *
+      3.14159265358979323846 / 180.0;
+    flight_cost_parameters.fixed_wing_detour_factor = std::max(
+      1.0, declare_parameter<double>("routing.fixed_wing_detour_factor", 1.08));
+    flight_cost_parameters.multicopter_detour_factor = std::max(
+      1.0, declare_parameter<double>("routing.multicopter_detour_factor", 1.03));
+    flight_cost_parameters.transition_time_s = std::max(
+      0.0, declare_parameter<double>("routing.vtol_transition_time_sec", 8.0));
+    flight_cost_parameters.multicopter_power_w = std::max(
+      0.0, declare_parameter<double>("routing.multicopter_power_w", 450.0));
+    flight_cost_parameters.fixed_wing_power_w = std::max(
+      0.0, declare_parameter<double>("routing.fixed_wing_power_w", 220.0));
+    flight_cost_parameters.transition_power_w = std::max(
+      0.0, declare_parameter<double>("routing.vtol_transition_power_w", 650.0));
+    flight_cost_parameters.climb_power_per_m_s_w = std::max(
+      0.0, declare_parameter<double>("routing.climb_power_per_m_s_w", 100.0));
+    flight_cost_parameters.multicopter_speed_power_coefficient = std::max(
+      0.0, declare_parameter<double>("routing.multicopter_speed_power_coefficient", 2.0));
+    flight_cost_parameters.fixed_wing_reference_speed_m_s = std::max(
+      1.0, declare_parameter<double>("routing.fixed_wing_reference_speed_m_s", 15.0));
+    flight_cost_model_ = std::make_unique<FlightCostModel>(flight_cost_parameters);
     if (no_fly_zone_values_.size() % 6 != 0) {
       throw std::runtime_error("geofence.no_fly_zones must contain groups of 6 values");
     }
@@ -161,6 +202,17 @@ private:
     bool has_speed_override {false};
     double speed_override_m_s {0.0};
     double lidar_range_m {70.0};
+    bool battery_valid {false};
+    double battery_remaining_pct {0.0};
+    double battery_time_remaining_s {-1.0};
+    double battery_power_w {0.0};
+    double battery_capacity_wh {0.0};
+    double battery_remaining_energy_wh {0.0};
+    uint8_t battery_state {SwarmDroneHeartbeat::BATTERY_STATE_UNKNOWN};
+    bool battery_available_for_tasks {true};
+    bool safety_excluded {false};
+    bool return_home_active {false};
+    uint8_t last_safety_event_state {SwarmDroneHeartbeat::BATTERY_STATE_UNKNOWN};
     std::string boot_id;
     std::string navigate_action;
     std::string arm_service;
@@ -175,6 +227,7 @@ private:
     uint64_t token {0};
     uint64_t route_id {0};
     std::string drone_id;
+    uint8_t purpose {SwarmRoute::PURPOSE_MISSION};
     std::vector<TargetRecord> targets;
     std::vector<double> leg_costs;
     double total_cost {0.0};
@@ -186,6 +239,20 @@ private:
     uint32_t completed_target_count {0};
     double distance_remaining_m {std::numeric_limits<double>::quiet_NaN()};
     std::string message {"waiting for broadcast"};
+  };
+
+  struct AuxiliaryRoute
+  {
+    uint64_t command_id {0};
+    uint64_t mission_id {0};
+    uint32_t revision {1};
+    RouteRecord route;
+  };
+
+  struct SafetyEvent
+  {
+    std::string drone_id;
+    uint8_t battery_state {SwarmDroneHeartbeat::BATTERY_STATE_UNKNOWN};
   };
 
   enum class DispatchPhase
@@ -379,6 +446,35 @@ private:
     drone.localized = heartbeat->localized;
     drone.navigation_ready = heartbeat->navigation_ready;
     drone.lidar_ready = heartbeat->lidar_ready;
+    drone.battery_valid = heartbeat->battery_valid;
+    drone.battery_remaining_pct = heartbeat->battery_remaining_pct;
+    drone.battery_time_remaining_s = heartbeat->battery_time_remaining_s;
+    drone.battery_power_w = heartbeat->battery_power_w;
+    drone.battery_capacity_wh = heartbeat->battery_capacity_wh;
+    drone.battery_remaining_energy_wh = heartbeat->battery_remaining_energy_wh;
+    drone.battery_state = heartbeat->battery_state;
+    drone.battery_available_for_tasks = heartbeat->available_for_tasks;
+    const bool safety_request = heartbeat->return_home_requested ||
+      heartbeat->emergency_land_requested;
+    if (safety_request && drone.last_safety_event_state != heartbeat->battery_state) {
+      drone.safety_excluded = true;
+      drone.return_home_active = heartbeat->return_home_requested;
+      drone.last_safety_event_state = heartbeat->battery_state;
+      const SafetyEvent event{drone.id, heartbeat->battery_state};
+      if (heartbeat->emergency_land_requested) {
+        pending_safety_events_.erase(
+          std::remove_if(
+            pending_safety_events_.begin(), pending_safety_events_.end(),
+            [&drone](const SafetyEvent & pending) {return pending.drone_id == drone.id;}),
+          pending_safety_events_.end());
+        pending_safety_events_.insert(pending_safety_events_.begin(), event);
+      } else {
+        pending_safety_events_.push_back(event);
+      }
+      status_message_ = drone.id + " reported a battery safety event";
+    } else if (!safety_request) {
+      drone.last_safety_event_state = SwarmDroneHeartbeat::BATTERY_STATE_UNKNOWN;
+    }
   }
 
   void discoverDrones()
@@ -465,6 +561,7 @@ private:
       std::lock_guard<std::mutex> lock(mutex_);
       target.id = next_target_id_++;
       pending_targets_.push_back(target);
+      invalidatePlannedRoutesLocked();
       response->pending_target_count = pending_targets_.size();
       status_message_ = "target " + std::to_string(target.id) + " added to pending buffer";
     }
@@ -483,10 +580,13 @@ private:
   {
     switch (request->command) {
       case SwarmCommand::Request::CALCULATE:
-        response->accepted = startRouting(false, response->message);
+        response->accepted = calculateRoutes(false, response->message);
         break;
       case SwarmCommand::Request::RECALCULATE:
-        response->accepted = startRouting(true, response->message);
+        response->accepted = calculateRoutes(true, response->message);
+        break;
+      case SwarmCommand::Request::START_MISSION:
+        response->accepted = dispatchPlannedMission(response->message);
         break;
       case SwarmCommand::Request::CLEAR_PENDING_TARGETS:
         response->accepted = clearPendingTargets(response->message);
@@ -536,7 +636,8 @@ private:
     std::lock_guard<std::mutex> lock(mutex_);
     response->pending_target_count = pending_targets_.size();
     response->active_target_count = active_targets_.size();
-    response->assigned_drone_count = current_routes_.size();
+    response->assigned_drone_count = planned_routes_.empty() ?
+      current_routes_.size() : planned_routes_.size();
   }
 
   bool setDroneSpeed(
@@ -570,6 +671,7 @@ private:
       }
       (*found)->has_speed_override = !clear_override;
       (*found)->speed_override_m_s = clear_override ? 0.0 : speed_m_s;
+      invalidatePlannedRoutesLocked();
       if (clear_override) {
         message = "cleared speed override for " + drone_id;
       } else {
@@ -595,9 +697,15 @@ private:
       return false;
     }
 
-    bool owns_route = false;
+    bool canceled_route = false;
+    uint64_t mission_id = 0;
+    uint32_t revision = 0;
     {
       std::lock_guard<std::mutex> lock(mutex_);
+      if (dispatch_phase_ != DispatchPhase::IDLE) {
+        message = "cannot change swarm membership while route feedback is pending";
+        return false;
+      }
       const auto found = std::find_if(
         drones_.begin(), drones_.end(),
         [&drone_id](const auto & drone) {return drone->id == drone_id;});
@@ -605,25 +713,41 @@ private:
         message = "unknown drone: " + drone_id;
         return false;
       }
-      if ((*found)->operator_enabled == enabled) {
+      if (enabled && (*found)->safety_excluded && !(*found)->battery_available_for_tasks) {
+        message = drone_id + " cannot rejoin while battery safety is active";
+        return false;
+      }
+      if ((*found)->operator_enabled == enabled && !(enabled && (*found)->safety_excluded)) {
         message = drone_id + (enabled ? " is already in the swarm" : " is already OFF");
         return false;
       }
       (*found)->operator_enabled = enabled;
-      owns_route = current_routes_.count(drone_id) != 0 ||
-        provisional_routes_.count(drone_id) != 0;
+      invalidatePlannedRoutesLocked();
+      if (enabled) {
+        (*found)->safety_excluded = false;
+        (*found)->return_home_active = false;
+      } else {
+        const auto auxiliary = auxiliary_routes_.find(drone_id);
+        if (auxiliary != auxiliary_routes_.end()) {
+          mission_id = auxiliary->second.mission_id;
+          revision = auxiliary->second.revision;
+          auxiliary_routes_.erase(auxiliary);
+          canceled_route = true;
+        } else {
+          mission_id = active_mission_id_;
+          revision = active_revision_;
+        }
+        canceled_route = detachDroneRouteLocked(drone_id, true) || canceled_route;
+        (*found)->return_home_active = false;
+      }
       status_message_ = enabled ? drone_id + " rejoined the swarm" :
         drone_id + " marked OFF and excluded from routing";
       message = status_message_;
     }
 
-    if (!enabled && owns_route) {
-      std::string cancel_message;
-      if (cancelActiveMission(cancel_message)) {
-        message += "; " + cancel_message;
-        std::lock_guard<std::mutex> lock(mutex_);
-        status_message_ = message;
-      }
+    if (!enabled && canceled_route) {
+      publishCancelCommand(mission_id, revision, {drone_id});
+      message += "; its unfinished targets were returned to pending";
     }
     RCLCPP_WARN(get_logger(), "%s", message.c_str());
     return true;
@@ -676,13 +800,18 @@ private:
   bool landDrones(const std::string & selected_drone_id, std::string & message)
   {
     std::vector<std::string> selected_drones;
-    bool mission_active = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);
+      if (dispatch_phase_ != DispatchPhase::IDLE) {
+        message = "cannot land while route feedback is pending";
+        return false;
+      }
       const auto current_time = now();
       for (const auto & drone : drones_) {
         if (!selected_drone_id.empty() && drone->id != selected_drone_id) continue;
-        if (droneHealthy(*drone, current_time)) selected_drones.push_back(drone->id);
+        const bool connected = drone->have_state && drone->state.position_valid &&
+          (current_time - drone->last_update).seconds() <= drone_state_timeout_s_;
+        if (connected && drone->operator_enabled) selected_drones.push_back(drone->id);
       }
       if (selected_drones.empty()) {
         message = selected_drone_id.empty() ?
@@ -690,15 +819,12 @@ private:
           "selected drone is unknown, OFF, disconnected, or not localized";
         return false;
       }
-      mission_active = !current_routes_.empty() || !provisional_routes_.empty();
-    }
-
-    if (mission_active) {
-      std::string cancel_message;
-      if (!cancelActiveMission(cancel_message)) {
-        message = "could not cancel the active mission before landing";
-        return false;
+      for (const auto & drone_id : selected_drones) {
+        detachDroneRouteLocked(drone_id, true);
+        auxiliary_routes_.erase(drone_id);
+        findDrone(drone_id)->return_home_active = false;
       }
+      invalidatePlannedRoutesLocked();
     }
     publishFlightCommand(SwarmMissionCommand::LAND, selected_drones);
     message = "landing command sent to " + std::to_string(selected_drones.size()) + " drone(s)";
@@ -774,6 +900,7 @@ private:
       return;
     }
     pending_targets_.erase(target);
+    invalidatePlannedRoutesLocked();
     response->removed = true;
     response->pending_target_count = pending_targets_.size();
     response->message = "removed pending target " + std::to_string(request->target_id);
@@ -783,6 +910,7 @@ private:
   bool droneHealthy(const DroneRecord & drone, const rclcpp::Time & current_time) const
   {
     if (!drone.operator_enabled) return false;
+    if (drone.safety_excluded || !drone.battery_available_for_tasks) return false;
     const bool state_fresh = drone.have_state && drone.state.position_valid &&
       (current_time - drone.last_update).seconds() <= drone_state_timeout_s_;
     if (!state_fresh) return false;
@@ -791,17 +919,74 @@ private:
            drone.px4_ready && drone.localized && drone.navigation_ready;
   }
 
-  static double pointDistance(
-    const geometry_msgs::msg::Point & from,
-    const geometry_msgs::msg::Point & to)
+  double targetSpeed(const DroneRecord & drone, const TargetRecord & target) const
   {
-    const double x = to.x - from.x;
-    const double y = to.y - from.y;
-    const double z = to.z - from.z;
-    return std::sqrt(x * x + y * y + z * z);
+    if (drone.has_speed_override) return std::max(0.2, drone.speed_override_m_s);
+    if (target.cruise_speed_m_s > 0.0) return target.cruise_speed_m_s;
+    return home_cruise_speed_m_s_;
   }
 
-  bool startRouting(bool recalculate, std::string & message)
+  static FlightPoint flightPoint(const geometry_msgs::msg::Point & point)
+  {
+    return {point.x, point.y, point.z};
+  }
+
+  FlightState flightState(const DroneRecord & drone) const
+  {
+    return {
+      flightPoint(drone.state.position_enu),
+      drone.state.heading_ned_rad,
+      drone.state.vehicle_mode == VehicleState::MODE_FIXED_WING};
+  }
+
+  FlightTarget flightTarget(const DroneRecord & drone, const TargetRecord & target) const
+  {
+    return {
+      flightPoint(target.target.pose.position),
+      targetSpeed(drone, target),
+      target.use_fixed_wing};
+  }
+
+  FlightTarget homeTarget(const DroneRecord & drone) const
+  {
+    geometry_msgs::msg::Point home = drone.geofence_origin;
+    home.z += home_altitude_above_origin_m_;
+    return {flightPoint(home), home_cruise_speed_m_s_, home_use_fixed_wing_};
+  }
+
+  double remainingMissionTime(
+    const DroneRecord & drone,
+    const std::map<std::string, RouteRecord> & routes) const
+  {
+    const auto found = routes.find(drone.id);
+    if (found == routes.end()) return 0.0;
+    const auto & route = found->second;
+    const std::size_t active = std::min<std::size_t>(
+      route.active_target_index, route.targets.size());
+    if (active >= route.targets.size()) return 0.0;
+
+    double result = flight_cost_model_->estimateFromState(
+      flightState(drone), flightTarget(drone, route.targets[active])).time_s;
+    FlightPoint incoming_reference = flightPoint(drone.state.position_enu);
+    for (std::size_t index = active + 1; index < route.targets.size(); ++index) {
+      const auto from = flightTarget(drone, route.targets[index - 1]);
+      result += flight_cost_model_->estimateBetweenTargets(
+        incoming_reference, from, flightTarget(drone, route.targets[index])).time_s;
+      incoming_reference = from.position;
+    }
+    return result;
+  }
+
+  double batteryPenalty(const DroneRecord & drone) const
+  {
+    if (!drone.battery_valid || drone.battery_remaining_pct >= battery_low_pct_) return 0.0;
+    const double span = std::max(1.0, battery_low_pct_ - battery_critical_pct_);
+    const double normalized = std::clamp(
+      (battery_low_pct_ - drone.battery_remaining_pct) / span, 0.0, 1.0);
+    return battery_penalty_max_s_ * normalized * normalized;
+  }
+
+  bool calculateRoutes(bool recalculate, std::string & message)
   {
     std::vector<TargetRecord> targets;
     std::vector<std::shared_ptr<DroneRecord>> eligible_drones;
@@ -823,8 +1008,8 @@ private:
       }
       if (recalculate) {
         for (const auto & active : active_targets_) targets.push_back(active.second);
-        previous_routes = current_routes_;
       }
+      previous_routes = current_routes_;
       targets.insert(targets.end(), pending_targets_.begin(), pending_targets_.end());
       if (targets.empty()) {
         message = "there are no targets to route";
@@ -847,30 +1032,81 @@ private:
     const double infinity = std::numeric_limits<double>::infinity();
     std::vector<std::vector<double>> start_costs(
       eligible_drones.size(), std::vector<double>(targets.size(), infinity));
+    std::vector<std::vector<std::vector<double>>> target_costs(
+      eligible_drones.size(),
+      std::vector<std::vector<double>>(
+        targets.size(), std::vector<double>(targets.size(), 0.0)));
+    std::vector<std::vector<double>> return_costs(
+      eligible_drones.size(), std::vector<double>(targets.size(), infinity));
+    std::vector<double> route_base_costs(eligible_drones.size(), 0.0);
+    std::vector<double> maximum_route_travel_costs(
+      eligible_drones.size(), infinity);
+    RouteResourceCosts energy_costs;
+    energy_costs.starts = std::vector<std::vector<double>>(
+      eligible_drones.size(), std::vector<double>(targets.size(), infinity));
+    energy_costs.legs = std::vector<std::vector<std::vector<double>>>(
+      eligible_drones.size(),
+      std::vector<std::vector<double>>(
+        targets.size(), std::vector<double>(targets.size(), 0.0)));
+    energy_costs.returns = std::vector<std::vector<double>>(
+      eligible_drones.size(), std::vector<double>(targets.size(), infinity));
+    energy_costs.maximum = std::vector<double>(eligible_drones.size(), infinity);
     for (std::size_t drone = 0; drone < eligible_drones.size(); ++drone) {
+      const auto & drone_record = *eligible_drones[drone];
+      route_base_costs[drone] = remainingMissionTime(drone_record, previous_routes) +
+        batteryPenalty(drone_record) +
+        (previous_routes.count(drone_record.id) != 0 ? active_route_penalty_s_ : 0.0);
+      if (drone_record.battery_valid &&
+        std::isfinite(drone_record.battery_time_remaining_s) &&
+        drone_record.battery_time_remaining_s >= 0.0)
+      {
+        maximum_route_travel_costs[drone] = std::max(
+          0.0, drone_record.battery_time_remaining_s - battery_reserve_s_);
+      }
+      if (drone_record.battery_valid &&
+        std::isfinite(drone_record.battery_capacity_wh) &&
+        std::isfinite(drone_record.battery_remaining_energy_wh) &&
+        drone_record.battery_capacity_wh > 0.0 &&
+        drone_record.battery_remaining_energy_wh >= 0.0)
+      {
+        const double reserve_wh = drone_record.battery_capacity_wh *
+          battery_energy_reserve_pct_ / 100.0;
+        energy_costs.maximum[drone] = std::max(
+          0.0, drone_record.battery_remaining_energy_wh - reserve_wh);
+      }
       for (std::size_t target = 0; target < targets.size(); ++target) {
-        if (targetValidForDrone(targets[target], *eligible_drones[drone])) {
-          start_costs[drone][target] = pointDistance(
-            eligible_drones[drone]->state.position_enu,
-            targets[target].target.pose.position);
+        if (targetValidForDrone(targets[target], drone_record)) {
+          const auto target_flight = flightTarget(drone_record, targets[target]);
+          const auto start_estimate = flight_cost_model_->estimateFromState(
+            flightState(drone_record), target_flight);
+          const auto return_estimate = flight_cost_model_->estimateBetweenTargets(
+            flightPoint(drone_record.state.position_enu), target_flight,
+            homeTarget(drone_record));
+          start_costs[drone][target] = start_estimate.time_s;
+          return_costs[drone][target] = return_estimate.time_s;
+          energy_costs.starts[drone][target] = start_estimate.energy_wh;
+          energy_costs.returns[drone][target] = return_estimate.energy_wh;
         }
       }
-    }
-    std::vector<std::vector<double>> target_costs(
-      targets.size(), std::vector<double>(targets.size(), 0.0));
-    for (std::size_t from = 0; from < targets.size(); ++from) {
-      for (std::size_t to = from + 1; to < targets.size(); ++to) {
-        const double cost = pointDistance(
-          targets[from].target.pose.position, targets[to].target.pose.position);
-        target_costs[from][to] = cost;
-        target_costs[to][from] = cost;
+      for (std::size_t from = 0; from < targets.size(); ++from) {
+        for (std::size_t to = 0; to < targets.size(); ++to) {
+          if (from == to) continue;
+          const auto estimate = flight_cost_model_->estimateBetweenTargets(
+            flightPoint(drone_record.state.position_enu),
+            flightTarget(drone_record, targets[from]),
+            flightTarget(drone_record, targets[to]));
+          target_costs[drone][from][to] = estimate.time_s;
+          energy_costs.legs[drone][from][to] = estimate.energy_wh;
+        }
       }
     }
 
     std::vector<RoutePlan> solved;
     try {
       solved = RouteSolver::solve(
-        start_costs, target_costs, true, route_improvement_passes_);
+        start_costs, target_costs, route_base_costs,
+        maximum_route_travel_costs, return_costs, true, route_improvement_passes_,
+        energy_costs);
     } catch (const std::exception & exception) {
       message = std::string("route optimization failed: ") + exception.what();
       return false;
@@ -884,15 +1120,23 @@ private:
       route.route_id = route.token;
       route.drone_id = drone->id;
       route.total_cost = route_plan.total_cost;
-      geometry_msgs::msg::Point previous_position = drone->state.position_enu;
+      FlightPoint incoming_reference = flightPoint(drone->state.position_enu);
+      FlightTarget previous_target;
+      bool have_previous_target = false;
       for (const auto target_index : route_plan.target_indices) {
         route.targets.push_back(targets[target_index]);
         if (drone->has_speed_override) {
           route.targets.back().cruise_speed_m_s = drone->speed_override_m_s;
         }
-        route.leg_costs.push_back(pointDistance(
-          previous_position, targets[target_index].target.pose.position));
-        previous_position = targets[target_index].target.pose.position;
+        const auto current_target = flightTarget(*drone, targets[target_index]);
+        const auto estimate = have_previous_target ?
+          flight_cost_model_->estimateBetweenTargets(
+          incoming_reference, previous_target, current_target) :
+          flight_cost_model_->estimateFromState(flightState(*drone), current_target);
+        route.leg_costs.push_back(estimate.time_s);
+        if (have_previous_target) incoming_reference = previous_target.position;
+        previous_target = current_target;
+        have_previous_target = true;
       }
 
       const auto previous = previous_routes.find(route.drone_id);
@@ -904,12 +1148,71 @@ private:
       plan[route.drone_id] = std::move(route);
     }
 
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      planned_routes_ = plan;
+      planned_recalculation_ = recalculate;
+      status_message_ = recalculate ?
+        "recalculated route preview ready; press START MISSION to dispatch" :
+        "route preview ready; press START MISSION to dispatch";
+      message = status_message_;
+    }
+
+    logRoutes(eligible_drones, plan, recalculate);
+    return true;
+  }
+
+  bool dispatchPlannedMission(std::string & message)
+  {
+    std::map<std::string, RouteRecord> plan;
     uint64_t command_id = 0;
     uint64_t mission_id = 0;
     uint32_t revision = 0;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (!recalculate) {
+      if (dispatch_phase_ != DispatchPhase::IDLE) {
+        message = "a mission broadcast is already waiting for drone feedback";
+        return false;
+      }
+      if (planned_routes_.empty()) {
+        message = "there is no calculated route plan; press CALCULATE first";
+        return false;
+      }
+      if (planned_recalculation_ != !current_routes_.empty()) {
+        message = "the calculated plan no longer matches the mission state; calculate again";
+        return false;
+      }
+
+      const auto current_time = now();
+      for (const auto & entry : planned_routes_) {
+        const auto drone = std::find_if(
+          drones_.begin(), drones_.end(),
+          [&entry](const auto & candidate) {return candidate->id == entry.first;});
+        const bool owns_active_route = current_routes_.count(entry.first) != 0;
+        if (drone == drones_.end() || !droneHealthy(**drone, current_time) ||
+          ((*drone)->busy && !owns_active_route))
+        {
+          message = "planned drone " + entry.first +
+            " is no longer available; calculate again";
+          return false;
+        }
+      }
+
+      std::set<uint64_t> available_target_ids;
+      for (const auto & target : pending_targets_) available_target_ids.insert(target.id);
+      if (planned_recalculation_) {
+        for (const auto & target : active_targets_) available_target_ids.insert(target.first);
+      }
+      std::set<uint64_t> planned_target_ids;
+      for (const auto & entry : planned_routes_) {
+        for (const auto & target : entry.second.targets) planned_target_ids.insert(target.id);
+      }
+      if (planned_target_ids != available_target_ids) {
+        message = "the target buffer changed after calculation; calculate again";
+        return false;
+      }
+
+      if (!planned_recalculation_) {
         active_mission_id_ = next_mission_id_++;
         active_revision_ = 1;
       } else {
@@ -919,18 +1222,20 @@ private:
       command_id = active_command_id_;
       mission_id = active_mission_id_;
       revision = active_revision_;
-      provisional_routes_ = plan;
-      recalculation_in_progress_ = recalculate;
+      plan = planned_routes_;
+      provisional_routes_ = planned_routes_;
+      planned_routes_.clear();
+      recalculation_in_progress_ = planned_recalculation_;
+      planned_recalculation_ = false;
       dispatch_phase_ = DispatchPhase::WAITING_FOR_FEEDBACK;
       dispatch_deadline_ = now() + rclcpp::Duration::from_seconds(feedback_timeout_s_);
       for (const auto & route : provisional_routes_) findDrone(route.first)->busy = true;
-      status_message_ = recalculate ?
+      status_message_ = recalculation_in_progress_ ?
         "recalculated mission broadcast; waiting for drone feedback" :
         "mission broadcast; waiting for drone feedback";
       message = status_message_;
     }
 
-    logRoutes(eligible_drones, plan, recalculate);
     publishExecuteCommand(command_id, mission_id, revision, plan);
     return true;
   }
@@ -948,13 +1253,14 @@ private:
     return true;
   }
 
-  bool startHomeMission(const std::string & selected_drone_id, std::string & message)
+  bool startHomeMission(
+    const std::string & selected_drone_id,
+    std::string & message,
+    uint8_t route_purpose = SwarmRoute::PURPOSE_HOME)
   {
     std::map<std::string, RouteRecord> plan;
     uint64_t command_id = 0;
     uint64_t mission_id = 0;
-    uint64_t previous_mission_id = 0;
-    uint32_t previous_revision = 0;
     uint32_t revision = 1;
     const auto current_time = now();
     {
@@ -966,32 +1272,44 @@ private:
 
       for (const auto & drone : drones_) {
         if (!selected_drone_id.empty() && drone->id != selected_drone_id) continue;
-        if (!droneHealthy(*drone, current_time) || !drone->have_geofence_origin) continue;
+        const bool connected = drone->have_state && drone->state.position_valid &&
+          (current_time - drone->last_update).seconds() <= drone_state_timeout_s_;
+        if (!connected || !drone->operator_enabled || !drone->have_geofence_origin) continue;
 
-        TargetRecord target;
-        target.id = next_target_id_++;
-        target.target.header.stamp = current_time;
-        target.target.header.frame_id = map_frame_;
-        target.target.pose.position.x = drone->geofence_origin.x;
-        target.target.pose.position.y = drone->geofence_origin.y;
-        target.target.pose.position.z =
+        TargetRecord approach;
+        approach.id = next_target_id_++;
+        approach.target.header.stamp = current_time;
+        approach.target.header.frame_id = map_frame_;
+        approach.target.pose.position.x = drone->geofence_origin.x;
+        approach.target.pose.position.y = drone->geofence_origin.y;
+        approach.target.pose.position.z =
           drone->geofence_origin.z + home_altitude_above_origin_m_;
-        target.target.pose.orientation.w = 1.0;
-        target.cruise_speed_m_s = home_cruise_speed_m_s_;
+        approach.target.pose.orientation.w = 1.0;
+        approach.cruise_speed_m_s = home_cruise_speed_m_s_;
         if (drone->has_speed_override) {
-          target.cruise_speed_m_s = drone->speed_override_m_s;
+          approach.cruise_speed_m_s = drone->speed_override_m_s;
         }
-        target.use_fixed_wing = home_use_fixed_wing_;
-        target.preserve_on_cancel = false;
+        approach.use_fixed_wing = home_use_fixed_wing_;
+        approach.preserve_on_cancel = false;
+
+        TargetRecord precision = approach;
+        precision.id = next_target_id_++;
+        precision.cruise_speed_m_s = home_precision_speed_m_s_;
+        precision.use_fixed_wing = false;
 
         RouteRecord route;
         route.token = next_route_token_++;
         route.route_id = route.token;
         route.drone_id = drone->id;
-        route.targets.push_back(target);
-        route.total_cost = pointDistance(
-          drone->state.position_enu, target.target.pose.position);
-        route.leg_costs.push_back(route.total_cost);
+        route.purpose = route_purpose;
+        route.targets = {approach, precision};
+        const auto approach_cost = flight_cost_model_->estimateFromState(
+          flightState(*drone), flightTarget(*drone, approach)).time_s;
+        const auto precision_cost = flight_cost_model_->estimateBetweenTargets(
+          flightPoint(drone->state.position_enu), flightTarget(*drone, approach),
+          flightTarget(*drone, precision)).time_s;
+        route.total_cost = approach_cost + precision_cost;
+        route.leg_costs = {approach_cost, precision_cost};
         plan[drone->id] = std::move(route);
       }
       if (plan.empty()) {
@@ -1001,28 +1319,20 @@ private:
         return false;
       }
 
-      previous_mission_id = active_mission_id_;
-      previous_revision = active_revision_;
-      restoreActiveTargetsLocked();
-      current_routes_.clear();
-      provisional_routes_.clear();
-      for (auto & drone : drones_) drone->busy = false;
-
-      active_mission_id_ = next_mission_id_++;
-      active_revision_ = revision;
-      active_command_id_ = next_command_id_++;
-      command_id = active_command_id_;
-      mission_id = active_mission_id_;
-      provisional_routes_ = plan;
-      recalculation_in_progress_ = false;
-      dispatch_phase_ = DispatchPhase::WAITING_FOR_FEEDBACK;
-      dispatch_deadline_ = now() + rclcpp::Duration::from_seconds(feedback_timeout_s_);
-      for (const auto & route : provisional_routes_) findDrone(route.first)->busy = true;
-      status_message_ = "return-home routes broadcast; waiting for drone feedback";
+      command_id = next_command_id_++;
+      mission_id = next_mission_id_++;
+      invalidatePlannedRoutesLocked();
+      for (const auto & route : plan) {
+        detachDroneRouteLocked(route.first, true);
+        auxiliary_routes_[route.first] = {command_id, mission_id, revision, route.second};
+        auto drone = findDrone(route.first);
+        drone->busy = true;
+        drone->return_home_active = true;
+      }
+      status_message_ = "targeted return-home routes broadcast";
       message = status_message_;
     }
 
-    publishCancelCommand(previous_mission_id, previous_revision);
     RCLCPP_INFO(get_logger(), "Returning %zu drone(s) to their recorded home positions", plan.size());
     publishExecuteCommand(command_id, mission_id, revision, plan);
     return true;
@@ -1061,6 +1371,7 @@ private:
       SwarmRoute route;
       route.drone_id = entry.first;
       route.route_id = entry.second.route_id;
+      route.purpose = entry.second.purpose;
       for (const auto & target : entry.second.targets) {
         RouteTarget route_target;
         route_target.target_id = target.id;
@@ -1225,6 +1536,29 @@ private:
     std::string failure_reason;
     {
       std::lock_guard<std::mutex> lock(mutex_);
+      const auto auxiliary = auxiliary_routes_.find(feedback->drone_id);
+      if (auxiliary != auxiliary_routes_.end() &&
+        feedback->command_id == auxiliary->second.command_id &&
+        feedback->mission_id == auxiliary->second.mission_id &&
+        feedback->revision == auxiliary->second.revision &&
+        feedback->route_id == auxiliary->second.route.route_id)
+      {
+        updateRouteFromFeedbackLocked(auxiliary->second.route, *feedback);
+        const bool terminal = feedback->state == SwarmMissionFeedback::SUCCEEDED ||
+          feedback->state == SwarmMissionFeedback::FAILED ||
+          feedback->state == SwarmMissionFeedback::REJECTED ||
+          feedback->state == SwarmMissionFeedback::CANCELED;
+        if (terminal) {
+          auto drone = findDrone(feedback->drone_id);
+          drone->busy = false;
+          drone->return_home_active = false;
+          status_message_ = feedback->drone_id +
+            (feedback->state == SwarmMissionFeedback::SUCCEEDED ?
+            " reached home" : " home route ended: " + feedback->message);
+          auxiliary_routes_.erase(auxiliary);
+        }
+        return;
+      }
       const bool current_broadcast = feedback->command_id == active_command_id_ &&
         feedback->mission_id == active_mission_id_ && feedback->revision == active_revision_;
 
@@ -1350,9 +1684,16 @@ private:
     }
     const auto count = pending_targets_.size();
     pending_targets_.clear();
+    invalidatePlannedRoutesLocked();
     message = "cleared " + std::to_string(count) + " pending target(s)";
     status_message_ = message;
     return true;
+  }
+
+  void invalidatePlannedRoutesLocked()
+  {
+    planned_routes_.clear();
+    planned_recalculation_ = false;
   }
 
   bool cancelActiveMission(std::string & message)
@@ -1370,6 +1711,7 @@ private:
       restoreActiveTargetsLocked();
       current_routes_.clear();
       provisional_routes_.clear();
+      invalidatePlannedRoutesLocked();
       dispatch_phase_ = DispatchPhase::IDLE;
       recalculation_in_progress_ = false;
       message = "active mission canceled; unfinished targets returned to pending buffer";
@@ -1384,9 +1726,12 @@ private:
   void finishMission()
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    for (auto & drone : drones_) drone->busy = false;
+    for (auto & drone : drones_) {
+      drone->busy = auxiliary_routes_.count(drone->id) != 0;
+    }
     current_routes_.clear();
     active_targets_.clear();
+    invalidatePlannedRoutesLocked();
     status_message_ = "swarm mission succeeded";
     RCLCPP_INFO(get_logger(), "%s", status_message_.c_str());
   }
@@ -1402,6 +1747,7 @@ private:
       restoreActiveTargetsLocked();
       current_routes_.clear();
       provisional_routes_.clear();
+      invalidatePlannedRoutesLocked();
       dispatch_phase_ = DispatchPhase::IDLE;
       recalculation_in_progress_ = false;
       status_message_ = reason + "; unfinished targets returned to pending";
@@ -1423,12 +1769,93 @@ private:
     active_targets_.clear();
   }
 
+  bool detachDroneRouteLocked(const std::string & drone_id, bool preserve_unfinished)
+  {
+    bool detached = false;
+    const auto current = current_routes_.find(drone_id);
+    if (current != current_routes_.end()) {
+      const auto & route = current->second;
+      const std::size_t completed = std::min<std::size_t>(
+        route.completed_target_count, route.targets.size());
+      for (std::size_t index = 0; index < route.targets.size(); ++index) {
+        const auto & target = route.targets[index];
+        active_targets_.erase(target.id);
+        if (!preserve_unfinished || index < completed || !target.preserve_on_cancel) continue;
+        const auto pending = std::find_if(
+          pending_targets_.begin(), pending_targets_.end(),
+          [&target](const TargetRecord & candidate) {return candidate.id == target.id;});
+        if (pending == pending_targets_.end()) pending_targets_.push_back(target);
+      }
+      current_routes_.erase(current);
+      detached = true;
+    }
+    if (provisional_routes_.erase(drone_id) != 0) detached = true;
+    const auto drone = std::find_if(
+      drones_.begin(), drones_.end(),
+      [&drone_id](const auto & candidate) {return candidate->id == drone_id;});
+    if (drone != drones_.end()) (*drone)->busy = false;
+    return detached;
+  }
+
+  void handleSafetyEvent(const SafetyEvent & event)
+  {
+    if (event.battery_state == SwarmDroneHeartbeat::BATTERY_STATE_EMERGENCY_LAND) {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        detachDroneRouteLocked(event.drone_id, true);
+        auxiliary_routes_.erase(event.drone_id);
+        auto drone = findDrone(event.drone_id);
+        drone->safety_excluded = true;
+        drone->return_home_active = false;
+        status_message_ = event.drone_id +
+          " entered battery emergency; targeted LAND sent and tasks recovered";
+      }
+      publishFlightCommand(SwarmMissionCommand::LAND, {event.drone_id});
+      RCLCPP_ERROR(get_logger(), "%s", status_message_.c_str());
+    } else {
+      std::string home_message;
+      const bool home_dispatched = startHomeMission(
+        event.drone_id, home_message, SwarmRoute::PURPOSE_LOW_BATTERY_RTH);
+      if (!home_dispatched)
+      {
+        RCLCPP_ERROR(
+          get_logger(), "Could not dispatch low-battery RTH for %s: %s",
+          event.drone_id.c_str(), home_message.c_str());
+      }
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto drone = findDrone(event.drone_id);
+        drone->safety_excluded = true;
+        drone->return_home_active = home_dispatched;
+      }
+    }
+
+    bool have_pending = false;
+    bool have_active_routes = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      have_pending = !pending_targets_.empty();
+      have_active_routes = !current_routes_.empty();
+    }
+    if (!have_pending) return;
+
+    std::string routing_message;
+    if (!calculateRoutes(have_active_routes, routing_message) ||
+      !dispatchPlannedMission(routing_message))
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      status_message_ += "; recovered tasks remain pending: " + routing_message;
+      RCLCPP_WARN(get_logger(), "%s", status_message_.c_str());
+    }
+  }
+
   void releaseUnassignedDrones()
   {
     std::lock_guard<std::mutex> lock(mutex_);
     for (auto & drone : drones_) {
       if (current_routes_.count(drone->id) == 0 &&
-        provisional_routes_.count(drone->id) == 0)
+        provisional_routes_.count(drone->id) == 0 &&
+        auxiliary_routes_.count(drone->id) == 0)
       {
         drone->busy = false;
       }
@@ -1439,14 +1866,22 @@ private:
   {
     discoverDrones();
     bool dispatch_timed_out = false;
+    bool have_safety_event = false;
+    SafetyEvent safety_event;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       dispatch_timed_out = dispatch_phase_ == DispatchPhase::WAITING_FOR_FEEDBACK &&
         now() >= dispatch_deadline_;
+      if (dispatch_phase_ == DispatchPhase::IDLE && !pending_safety_events_.empty()) {
+        safety_event = pending_safety_events_.front();
+        pending_safety_events_.erase(pending_safety_events_.begin());
+        have_safety_event = true;
+      }
     }
     if (dispatch_timed_out) {
       failProvisional("timed out waiting for broadcast acceptance feedback");
     }
+    if (have_safety_event) handleSafetyEvent(safety_event);
     publishState();
   }
 
@@ -1461,6 +1896,9 @@ private:
       state.active_target_count = active_targets_.size();
       state.dispatch_in_progress = dispatch_phase_ != DispatchPhase::IDLE;
       state.mission_active = !current_routes_.empty();
+      state.plan_ready = !planned_routes_.empty();
+      state.plan_is_recalculation = planned_recalculation_;
+      state.planned_drone_count = planned_routes_.size();
       state.status_message = status_message_;
       for (const auto & target : pending_targets_) {
         RouteTarget route_target;
@@ -1508,21 +1946,35 @@ private:
         drone_state.has_speed_override = drone->has_speed_override;
         drone_state.speed_override_m_s = drone->speed_override_m_s;
         drone_state.lidar_range_m = drone->lidar_range_m;
+        drone_state.battery_valid = drone->battery_valid;
+        drone_state.battery_remaining_pct = drone->battery_remaining_pct;
+        drone_state.battery_time_remaining_s = drone->battery_time_remaining_s;
+        drone_state.battery_power_w = drone->battery_power_w;
+        drone_state.battery_capacity_wh = drone->battery_capacity_wh;
+        drone_state.battery_remaining_energy_wh = drone->battery_remaining_energy_wh;
+        drone_state.battery_state = drone->battery_state;
+        drone_state.safety_excluded = drone->safety_excluded;
+        drone_state.return_home_active = drone->return_home_active;
         drone_state.last_update_age_sec = drone->have_state ?
           std::max(0.0, (current_time - drone->last_update).seconds()) :
           std::numeric_limits<double>::infinity();
         drone_state.position = drone->state.position_enu;
         state.drones.push_back(std::move(drone_state));
       }
-      appendRouteState(current_routes_, state);
-      appendRouteState(provisional_routes_, state);
+      appendRouteState(current_routes_, state.assignments);
+      appendRouteState(provisional_routes_, state.assignments);
+      appendRouteState(planned_routes_, state.planned_assignments);
+      for (const auto & auxiliary : auxiliary_routes_) {
+        const std::map<std::string, RouteRecord> route{{auxiliary.first, auxiliary.second.route}};
+        appendRouteState(route, state.assignments);
+      }
     }
     state_pub_->publish(state);
   }
 
   void appendRouteState(
     const std::map<std::string, RouteRecord> & routes,
-    SwarmState & state)
+    std::vector<SwarmAssignment> & assignments)
   {
     for (const auto & entry : routes) {
       const auto & route = entry.second;
@@ -1533,6 +1985,7 @@ private:
         assignment.target = route.targets[index].target;
         assignment.current_position = findDrone(entry.first)->state.position_enu;
         assignment.cost = index < route.leg_costs.size() ? route.leg_costs[index] : 0.0;
+        assignment.route_total_cost = route.total_cost;
         assignment.distance_remaining_m = index == route.active_target_index ?
           route.distance_remaining_m : std::numeric_limits<double>::quiet_NaN();
         if (index < route.completed_target_count ||
@@ -1555,7 +2008,7 @@ private:
         message << "route step " << (index + 1) << '/' << route.targets.size()
                 << " | route cost=" << route.total_cost << " | " << route.message;
         assignment.message = message.str();
-        state.assignments.push_back(std::move(assignment));
+        assignments.push_back(std::move(assignment));
       }
     }
   }
@@ -1573,12 +2026,21 @@ private:
   std::size_t route_improvement_passes_ {50};
   double home_altitude_above_origin_m_ {15.0};
   double home_cruise_speed_m_s_ {15.0};
+  double home_precision_speed_m_s_ {3.0};
   bool home_use_fixed_wing_ {true};
   double min_drone_speed_m_s_ {10.0};
   double max_drone_speed_m_s_ {20.0};
   double min_lidar_range_m_ {70.0};
   double max_lidar_range_m_ {300.0};
   double default_lidar_range_m_ {70.0};
+  double battery_low_pct_ {40.0};
+  double battery_critical_pct_ {25.0};
+  double battery_penalty_max_s_ {120.0};
+  double battery_reserve_s_ {60.0};
+  double battery_energy_reserve_pct_ {15.0};
+  double active_route_penalty_s_ {30.0};
+  double routing_vertical_speed_m_s_ {3.0};
+  std::unique_ptr<FlightCostModel> flight_cost_model_;
   std::vector<double> no_fly_zone_values_;
   uint64_t next_target_id_ {1};
   uint64_t next_route_token_ {1};
@@ -1592,8 +2054,12 @@ private:
   std::map<uint64_t, TargetRecord> active_targets_;
   std::map<std::string, RouteRecord> current_routes_;
   std::map<std::string, RouteRecord> provisional_routes_;
+  std::map<std::string, RouteRecord> planned_routes_;
+  std::map<std::string, AuxiliaryRoute> auxiliary_routes_;
+  std::vector<SafetyEvent> pending_safety_events_;
   DispatchPhase dispatch_phase_ {DispatchPhase::IDLE};
   bool recalculation_in_progress_ {false};
+  bool planned_recalculation_ {false};
   rclcpp::Time dispatch_deadline_;
   std::chrono::steady_clock::time_point last_discovery_;
   std::string status_message_ {"waiting for targets"};

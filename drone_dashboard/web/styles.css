@@ -100,6 +100,15 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px rgba(73, 216, 208
 .speed-line { display: flex; align-items: baseline; justify-content: space-between; margin: -2px 0 10px; padding: 7px 9px; border-left: 2px solid var(--cyan); background: rgba(73, 216, 208, .06); }
 .speed-line span { color: var(--muted); font-size: 9px; letter-spacing: .08em; }
 .speed-line b { color: var(--cyan); font-size: 15px; }
+.route-summary { display: flex; justify-content: space-between; margin: -3px 0 10px; padding: 6px 9px; border-left: 2px solid var(--amber); background: rgba(255, 189, 82, .07); }
+.route-summary span { color: var(--amber); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+.route-summary b { color: var(--text); font-size: 11px; }
+.battery-line { margin: -3px 0 10px; color: var(--green); }
+.battery-line span { font-size: 9px; font-weight: 800; letter-spacing: .06em; }
+.battery-track { height: 5px; margin-top: 5px; overflow: hidden; border-radius: 5px; background: rgba(255,255,255,.08); }
+.battery-track i { display: block; height: 100%; border-radius: inherit; background: currentColor; transition: width .3s ease; }
+.battery-line.warning { color: var(--amber); }
+.battery-line.emergency { color: var(--red); }
 .speed-control { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: end; margin-bottom: 4px; }
 .speed-control label { color: var(--muted); font-size: 9px; letter-spacing: .08em; }
 .speed-control input[type="number"] { display: block; width: 100%; margin-top: 3px; padding: 6px 8px; }

@@ -401,8 +401,12 @@ private:
         "goal became invalid: " + validation.reason, distance, false);
       return;
     }
-    if (horizontal_distance <= goal_tolerance_m_ &&
-      std::fabs(up) <= altitude_tolerance_m_)
+    const double horizontal_tolerance_m = goal->horizontal_tolerance_m > 0.0 ?
+      std::max(0.2, goal->horizontal_tolerance_m) : goal_tolerance_m_;
+    const double altitude_tolerance_m = goal->altitude_tolerance_m > 0.0 ?
+      std::max(0.2, goal->altitude_tolerance_m) : altitude_tolerance_m_;
+    if (horizontal_distance <= horizontal_tolerance_m &&
+      std::fabs(up) <= altitude_tolerance_m)
     {
       scheduleArrivalHold(state.position_enu.z);
       finishGoal(

@@ -1,7 +1,5 @@
 """Start one independent drone brain without Gazebo, PX4 SITL, RViz, or coordinator."""
 
-import os
-
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -58,7 +56,9 @@ def generate_launch_description():
             "network_mode", default_value="lan", choices=["local", "lan"]
         ),
         DeclareLaunchArgument(
-            "ros_domain_id", default_value=os.environ.get("ROS_DOMAIN_ID", "0")
+            "ros_domain_id",
+            default_value="0",
+            description="ROS 2 domain shared with the swarm coordinator.",
         ),
         SetEnvironmentVariable("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp"),
         SetEnvironmentVariable("ROS_DOMAIN_ID", LaunchConfiguration("ros_domain_id")),
@@ -151,6 +151,9 @@ def generate_launch_description():
                 "map_frame": "map",
                 "base_frame": ParameterValue([drone_id, "/base_link"], value_type=str),
                 "use_ground_truth": ParameterValue(use_ground_truth, value_type=bool),
+                "map_origin_east_m": LaunchConfiguration("map_origin_east_m"),
+                "map_origin_north_m": LaunchConfiguration("map_origin_north_m"),
+                "map_origin_up_m": LaunchConfiguration("map_origin_up_m"),
                 "ground_truth_topic": ParameterValue(
                     ["/", drone_id, "/ground_truth/odometry"], value_type=str
                 ),

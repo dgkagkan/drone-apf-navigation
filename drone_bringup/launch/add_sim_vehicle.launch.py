@@ -256,7 +256,9 @@ def generate_launch_description():
             "network_mode", default_value="local", choices=["local", "lan"]
         ),
         DeclareLaunchArgument(
-            "ros_domain_id", default_value=os.environ.get("ROS_DOMAIN_ID", "0")
+            "ros_domain_id",
+            default_value="0",
+            description="ROS 2 domain shared with the running swarm.",
         ),
         SetEnvironmentVariable("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp"),
         SetEnvironmentVariable("ROS_DOMAIN_ID", LaunchConfiguration("ros_domain_id")),

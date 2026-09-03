@@ -11,6 +11,22 @@ setpoint. Without it PX4 falls back to `FW_AIRSPD_TRIM` (15 m/s), even when ROS
 requests another speed. Apply it from the PX4 root with
 `git apply /path/to/drone_bringup/px4/0001-offboard-fixed-wing-speed.patch`.
 
+`0002-load-based-battery-simulator.patch` replaces the default linear SITL
+timer with a persistent energy model. It uses vehicle mode, landed state,
+horizontal speed, climb speed, VTOL transition load, pack capacity, and
+resistance to publish realistic voltage, current, state of charge, and
+remaining time. Apply it from the PX4 root with:
+
+```bash
+git apply /path/to/drone_bringup/px4/0002-load-based-battery-simulator.patch
+make px4_sitl
+```
+
+The active PX4 checkout on this machine already contains the patch. Its
+`SIM_BAT_*` parameters can tune capacity and loads independently for every PX4
+instance. Disarming no longer recharges the simulated battery; restarting the
+battery simulator applies `SIM_BAT_INIT_PCT`.
+
 ## `4030_gz_standard_vtol_lidar`
 
 Custom PX4 SITL airframe that spawns the `standard_vtol_lidar` gz model

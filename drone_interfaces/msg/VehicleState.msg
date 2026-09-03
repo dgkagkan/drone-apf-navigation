@@ -3,13 +3,32 @@ uint8 MODE_FIXED_WING=1
 uint8 MODE_TRANSITION=2
 uint8 MODE_UNKNOWN=255
 
+uint8 BATTERY_WARNING_NONE=0
+uint8 BATTERY_WARNING_LOW=1
+uint8 BATTERY_WARNING_CRITICAL=2
+uint8 BATTERY_WARNING_EMERGENCY=3
+uint8 BATTERY_WARNING_FAILED=4
+uint8 BATTERY_WARNING_UNKNOWN=255
+
 std_msgs/Header header
 bool position_valid
 bool attitude_valid
 bool armed
 bool offboard
+bool landed_valid
+bool landed
 uint8 vehicle_mode
 geometry_msgs/Point position_enu
 geometry_msgs/Vector3 velocity_enu
 geometry_msgs/Quaternion attitude_body_to_ned
 float64 heading_ned_rad
+bool battery_valid
+bool battery_connected
+float64 battery_remaining_pct
+float64 battery_time_remaining_s
+float64 battery_voltage_v
+float64 battery_current_a
+float64 battery_power_w
+float64 battery_capacity_wh
+float64 battery_remaining_energy_wh
+uint8 battery_warning

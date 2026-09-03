@@ -365,7 +365,9 @@ def generate_launch_description():
             description="local keeps ROS on loopback; lan allows remote drone brains.",
         ),
         DeclareLaunchArgument(
-            "ros_domain_id", default_value=os.environ.get("ROS_DOMAIN_ID", "0")
+            "ros_domain_id",
+            default_value="0",
+            description="ROS 2 domain for the complete swarm stack.",
         ),
         # Gazebo Transport and PX4 remain local in both modes. ROS uses loopback
         # by default and is exposed to the LAN only for remote drone brains.

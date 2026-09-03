@@ -1,7 +1,24 @@
 std_msgs/Header header
+
+uint8 BATTERY_STATE_UNKNOWN=0
+uint8 BATTERY_STATE_NORMAL=1
+uint8 BATTERY_STATE_LOW=2
+uint8 BATTERY_STATE_RETURN_HOME=3
+uint8 BATTERY_STATE_EMERGENCY_LAND=4
+
 string drone_id
 string boot_id
 bool px4_ready
 bool localized
 bool navigation_ready
 bool lidar_ready
+bool battery_valid
+float64 battery_remaining_pct
+float64 battery_time_remaining_s
+float64 battery_power_w
+float64 battery_capacity_wh
+float64 battery_remaining_energy_wh
+uint8 battery_state
+bool available_for_tasks
+bool return_home_requested
+bool emergency_land_requested

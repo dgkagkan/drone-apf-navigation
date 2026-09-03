@@ -49,6 +49,10 @@ public:
     }
     navigate_server_wait_log_period_ms_ = std::max<int64_t>(
       1000, declare_parameter<int64_t>("navigate_server_wait_log_period_ms", 5000));
+    home_horizontal_tolerance_m_ = std::max(
+      0.2, declare_parameter<double>("home.horizontal_tolerance_m", 0.5));
+    home_altitude_tolerance_m_ = std::max(
+      0.2, declare_parameter<double>("home.altitude_tolerance_m", 0.5));
 
     const auto command_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable().transient_local();
     const auto feedback_qos = rclcpp::QoS(rclcpp::KeepLast(100)).reliable();
@@ -253,6 +257,7 @@ private:
           previous_child = active_navigate_goal_;
           ++generation_;
           route_id_ = own_route->route_id;
+          route_purpose_ = own_route->purpose;
           route_targets_ = own_route->targets;
           active_target_index_ = 0;
           completed_target_count_ = 0;
@@ -407,6 +412,7 @@ private:
     bool send_target = false;
     bool finish_canceled = false;
     bool finish_succeeded = false;
+    bool precision_home_approach = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (!route_active_) return;
@@ -425,6 +431,10 @@ private:
         return;
       } else {
         route_target = route_targets_[active_target_index_];
+        precision_home_approach =
+          (route_purpose_ == SwarmRoute::PURPOSE_HOME ||
+          route_purpose_ == SwarmRoute::PURPOSE_LOW_BATTERY_RTH) &&
+          active_target_index_ + 1 == route_targets_.size();
         generation = generation_;
         navigate_request_in_progress_ = true;
         send_target = true;
@@ -436,16 +446,23 @@ private:
     } else if (finish_succeeded) {
       finishRoute(generation, SwarmMissionFeedback::SUCCEEDED, "route completed");
     } else if (send_target) {
-      sendNavigateGoal(route_target, generation);
+      sendNavigateGoal(route_target, generation, precision_home_approach);
     }
   }
 
-  void sendNavigateGoal(const RouteTarget & route_target, uint64_t generation)
+  void sendNavigateGoal(
+    const RouteTarget & route_target,
+    uint64_t generation,
+    bool precision_home_approach)
   {
     NavigateTo::Goal goal;
     goal.target = route_target.target;
     goal.cruise_speed_m_s = route_target.cruise_speed_m_s;
     goal.use_fixed_wing = route_target.use_fixed_wing;
+    if (precision_home_approach) {
+      goal.horizontal_tolerance_m = home_horizontal_tolerance_m_;
+      goal.altitude_tolerance_m = home_altitude_tolerance_m_;
+    }
 
     rclcpp_action::Client<NavigateTo>::SendGoalOptions options;
     options.goal_response_callback =
@@ -525,10 +542,14 @@ private:
   void finishRoute(uint64_t generation, uint8_t state, const std::string & message)
   {
     SwarmMissionFeedback feedback;
+    bool land_at_home = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (generation != generation_ || !route_active_) return;
       feedback = makeFeedbackLocked(state, message);
+      land_at_home = state == SwarmMissionFeedback::SUCCEEDED &&
+        (route_purpose_ == SwarmRoute::PURPOSE_HOME ||
+        route_purpose_ == SwarmRoute::PURPOSE_LOW_BATTERY_RTH);
       last_feedback_state_ = state;
       last_feedback_message_ = message;
       route_active_ = false;
@@ -538,8 +559,13 @@ private:
       navigate_request_in_progress_ = false;
       active_navigate_goal_.reset();
       cancel_requested_ = false;
+      route_purpose_ = SwarmRoute::PURPOSE_MISSION;
     }
     mission_feedback_pub_->publish(feedback);
+    if (land_at_home) {
+      publishFlightRequest(FlightRequest::LAND);
+      RCLCPP_WARN(get_logger(), "Home position reached; commanding local LAND");
+    }
     RCLCPP_INFO(get_logger(), "Broadcast route finished: %s", message.c_str());
   }
 
@@ -547,11 +573,14 @@ private:
   std::string map_frame_ {"map"};
   std::string drone_id_;
   int64_t navigate_server_wait_log_period_ms_ {5000};
+  double home_horizontal_tolerance_m_ {0.5};
+  double home_altitude_tolerance_m_ {0.5};
   uint64_t generation_ {0};
   uint64_t command_id_ {0};
   uint64_t mission_id_ {0};
   uint32_t revision_ {0};
   uint64_t route_id_ {0};
+  uint8_t route_purpose_ {SwarmRoute::PURPOSE_MISSION};
   std::vector<RouteTarget> route_targets_;
   std::size_t active_target_index_ {0};
   uint32_t completed_target_count_ {0};

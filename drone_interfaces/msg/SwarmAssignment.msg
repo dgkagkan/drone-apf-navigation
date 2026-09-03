@@ -11,6 +11,7 @@ string drone_id
 geometry_msgs/PoseStamped target
 geometry_msgs/Point current_position
 float64 cost
+float64 route_total_cost
 float64 distance_remaining_m
 uint8 state
 string message

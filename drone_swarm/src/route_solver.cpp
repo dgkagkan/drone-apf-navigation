@@ -4,7 +4,6 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
-#include <utility>
 #include <vector>
 
 namespace drone_swarm
@@ -12,44 +11,110 @@ namespace drone_swarm
 namespace
 {
 
-constexpr double kImprovementTolerance = 1.0e-9;
+constexpr double kTolerance = 1.0e-9;
+using Matrix = std::vector<std::vector<double>>;
+using CostCube = std::vector<Matrix>;
 
-void validateCosts(
-  const std::vector<std::vector<double>> & drone_start_costs,
-  const std::vector<std::vector<double>> & target_costs)
+struct SolverCosts
 {
-  if (drone_start_costs.empty()) {
+  const Matrix & starts;
+  const CostCube & legs;
+  const std::vector<double> & bases;
+  const std::vector<double> & maximum_travel;
+  const Matrix & returns;
+  const RouteResourceCosts * resources;
+};
+
+struct SolutionScore
+{
+  double maximum {0.0};
+  double spread {0.0};
+  double total {0.0};
+};
+
+bool hasResourceConstraint(const SolverCosts & costs)
+{
+  return costs.resources != nullptr && !costs.resources->starts.empty();
+}
+
+void validateValue(double value, const char * description, bool allow_infinity)
+{
+  if (std::isnan(value) || value < 0.0 || (!allow_infinity && !std::isfinite(value))) {
+    throw std::invalid_argument(description);
+  }
+}
+
+void validateCosts(const SolverCosts & costs)
+{
+  if (costs.starts.empty()) {
     throw std::invalid_argument("route optimization requires at least one drone");
   }
-  const std::size_t target_count = drone_start_costs.front().size();
-  if (target_count == 0) return;
-  for (const auto & row : drone_start_costs) {
-    if (row.size() != target_count) {
-      throw std::invalid_argument("drone start-cost rows must have equal length");
+  const std::size_t drone_count = costs.starts.size();
+  const std::size_t target_count = costs.starts.front().size();
+  if (costs.legs.size() != drone_count || costs.bases.size() != drone_count ||
+    costs.maximum_travel.size() != drone_count || costs.returns.size() != drone_count)
+  {
+    throw std::invalid_argument("per-drone route cost dimensions do not match drone count");
+  }
+  for (std::size_t drone = 0; drone < drone_count; ++drone) {
+    if (costs.starts[drone].size() != target_count ||
+      costs.legs[drone].size() != target_count ||
+      costs.returns[drone].size() != target_count)
+    {
+      throw std::invalid_argument("per-drone route cost dimensions do not match target count");
     }
-    for (const double cost : row) {
-      if (std::isnan(cost) || cost < 0.0) {
-        throw std::invalid_argument("drone start costs must be non-negative or infinity");
+    validateValue(costs.bases[drone], "route base costs must be finite and non-negative", false);
+    validateValue(
+      costs.maximum_travel[drone],
+      "maximum route travel costs must be non-negative or infinity", true);
+    for (std::size_t from = 0; from < target_count; ++from) {
+      validateValue(
+        costs.starts[drone][from], "drone start costs must be non-negative or infinity", true);
+      validateValue(
+        costs.returns[drone][from], "target return costs must be non-negative or infinity", true);
+      if (costs.legs[drone][from].size() != target_count) {
+        throw std::invalid_argument("per-drone target cost matrix must be square");
+      }
+      for (const double value : costs.legs[drone][from]) {
+        validateValue(value, "target leg costs must be finite and non-negative", false);
       }
     }
   }
-  if (target_costs.size() != target_count) {
-    throw std::invalid_argument("target-cost matrix size does not match target count");
+
+  if (!hasResourceConstraint(costs)) return;
+  const auto & resources = *costs.resources;
+  if (resources.starts.size() != drone_count || resources.legs.size() != drone_count ||
+    resources.returns.size() != drone_count || resources.maximum.size() != drone_count)
+  {
+    throw std::invalid_argument("route resource dimensions do not match drone count");
   }
-  for (const auto & row : target_costs) {
-    if (row.size() != target_count) {
-      throw std::invalid_argument("target-cost matrix must be square");
+  for (std::size_t drone = 0; drone < drone_count; ++drone) {
+    if (resources.starts[drone].size() != target_count ||
+      resources.legs[drone].size() != target_count ||
+      resources.returns[drone].size() != target_count)
+    {
+      throw std::invalid_argument("route resource dimensions do not match target count");
     }
-    for (const double cost : row) {
-      if (!std::isfinite(cost) || cost < 0.0) {
-        throw std::invalid_argument("target-to-target costs must be finite and non-negative");
+    validateValue(
+      resources.maximum[drone], "maximum route resource must be non-negative or infinity", true);
+    for (std::size_t from = 0; from < target_count; ++from) {
+      validateValue(
+        resources.starts[drone][from],
+        "route start resources must be non-negative or infinity", true);
+      validateValue(
+        resources.returns[drone][from],
+        "route return resources must be non-negative or infinity", true);
+      if (resources.legs[drone][from].size() != target_count) {
+        throw std::invalid_argument("per-drone route resource matrix must be square");
+      }
+      for (const double value : resources.legs[drone][from]) {
+        validateValue(value, "route leg resources must be finite and non-negative", false);
       }
     }
   }
 }
 
-std::vector<std::size_t> minimumRowAssignment(
-  const std::vector<std::vector<double>> & row_costs)
+std::vector<std::size_t> minimumRowAssignment(const Matrix & row_costs)
 {
   if (row_costs.empty()) return {};
   const std::size_t row_count = row_costs.size();
@@ -62,11 +127,10 @@ std::vector<std::size_t> minimumRowAssignment(
   std::vector<double> column_potential(column_count + 1, 0.0);
   std::vector<std::size_t> matched_row(column_count + 1, 0);
   std::vector<std::size_t> previous_column(column_count + 1, 0);
-
   for (std::size_t row = 1; row <= row_count; ++row) {
     matched_row[0] = row;
     std::size_t current_column = 0;
-    std::vector<double> minimum_reduced_cost(
+    std::vector<double> reduced_minimum(
       column_count + 1, std::numeric_limits<double>::infinity());
     std::vector<bool> used(column_count + 1, false);
     do {
@@ -76,14 +140,14 @@ std::vector<std::size_t> minimumRowAssignment(
       std::size_t next_column = 0;
       for (std::size_t column = 1; column <= column_count; ++column) {
         if (used[column]) continue;
-        const double reduced_cost = row_costs[current_row - 1][column - 1] -
+        const double reduced = row_costs[current_row - 1][column - 1] -
           row_potential[current_row] - column_potential[column];
-        if (reduced_cost < minimum_reduced_cost[column]) {
-          minimum_reduced_cost[column] = reduced_cost;
+        if (reduced < reduced_minimum[column]) {
+          reduced_minimum[column] = reduced;
           previous_column[column] = current_column;
         }
-        if (minimum_reduced_cost[column] < delta) {
-          delta = minimum_reduced_cost[column];
+        if (reduced_minimum[column] < delta) {
+          delta = reduced_minimum[column];
           next_column = column;
         }
       }
@@ -95,12 +159,11 @@ std::vector<std::size_t> minimumRowAssignment(
           row_potential[matched_row[column]] += delta;
           column_potential[column] -= delta;
         } else {
-          minimum_reduced_cost[column] -= delta;
+          reduced_minimum[column] -= delta;
         }
       }
       current_column = next_column;
     } while (matched_row[current_column] != 0);
-
     do {
       const std::size_t previous = previous_column[current_column];
       matched_row[current_column] = matched_row[previous];
@@ -122,172 +185,197 @@ std::vector<std::size_t> minimumRowAssignment(
   return assignment;
 }
 
-double routeCost(
-  std::size_t drone,
-  const std::vector<std::size_t> & route,
-  const std::vector<std::vector<double>> & start_costs,
-  const std::vector<std::vector<double>> & target_costs)
+double travelCost(
+  std::size_t drone, const std::vector<std::size_t> & route, const SolverCosts & costs)
 {
   if (route.empty()) return 0.0;
-  double cost = start_costs[drone][route.front()];
+  double result = costs.starts[drone][route.front()];
   for (std::size_t index = 1; index < route.size(); ++index) {
-    cost += target_costs[route[index - 1]][route[index]];
+    result += costs.legs[drone][route[index - 1]][route[index]];
   }
-  return cost;
+  return result;
 }
 
-double insertionDelta(
-  std::size_t drone,
-  const std::vector<std::size_t> & route,
-  std::size_t position,
-  std::size_t target,
-  const std::vector<std::vector<double>> & start_costs,
-  const std::vector<std::vector<double>> & target_costs)
+double objectiveCost(
+  std::size_t drone, const std::vector<std::size_t> & route, const SolverCosts & costs)
 {
-  if (route.empty()) return start_costs[drone][target];
-  if (position == 0) {
-    return start_costs[drone][target] + target_costs[target][route.front()] -
-           start_costs[drone][route.front()];
-  }
-  if (position == route.size()) return target_costs[route.back()][target];
-  const auto previous = route[position - 1];
-  const auto next = route[position];
-  return target_costs[previous][target] + target_costs[target][next] -
-         target_costs[previous][next];
+  return route.empty() ? 0.0 : costs.bases[drone] + travelCost(drone, route, costs);
 }
 
-double removalDelta(
-  std::size_t drone,
-  const std::vector<std::size_t> & route,
-  std::size_t position,
-  const std::vector<std::vector<double>> & start_costs,
-  const std::vector<std::vector<double>> & target_costs)
+SolutionScore solutionScore(
+  const std::vector<std::vector<std::size_t>> & routes,
+  const SolverCosts & costs)
 {
-  if (route.size() == 1) return -start_costs[drone][route.front()];
-  if (position == 0) {
-    return start_costs[drone][route[1]] - start_costs[drone][route[0]] -
-           target_costs[route[0]][route[1]];
+  SolutionScore score;
+  double minimum = std::numeric_limits<double>::infinity();
+  for (std::size_t drone = 0; drone < routes.size(); ++drone) {
+    if (routes[drone].empty()) continue;
+    const double route_cost = objectiveCost(drone, routes[drone], costs);
+    score.maximum = std::max(score.maximum, route_cost);
+    minimum = std::min(minimum, route_cost);
+    score.total += route_cost;
   }
-  if (position + 1 == route.size()) {
-    return -target_costs[route[position - 1]][route[position]];
+  if (std::isfinite(minimum)) score.spread = score.maximum - minimum;
+  return score;
+}
+
+bool scoreBetter(const SolutionScore & candidate, const SolutionScore & current)
+{
+  if (candidate.maximum < current.maximum - kTolerance) return true;
+  if (candidate.maximum > current.maximum + kTolerance) return false;
+  if (candidate.spread < current.spread - kTolerance) return true;
+  if (candidate.spread > current.spread + kTolerance) return false;
+  return candidate.total < current.total - kTolerance;
+}
+
+double resourceTravelCost(
+  std::size_t drone, const std::vector<std::size_t> & route, const SolverCosts & costs)
+{
+  if (route.empty() || !hasResourceConstraint(costs)) return 0.0;
+  const auto & resources = *costs.resources;
+  double result = resources.starts[drone][route.front()];
+  for (std::size_t index = 1; index < route.size(); ++index) {
+    result += resources.legs[drone][route[index - 1]][route[index]];
   }
-  return target_costs[route[position - 1]][route[position + 1]] -
-         target_costs[route[position - 1]][route[position]] -
-         target_costs[route[position]][route[position + 1]];
+  return result;
+}
+
+bool routeFeasible(
+  std::size_t drone, const std::vector<std::size_t> & route, const SolverCosts & costs)
+{
+  if (route.empty()) return true;
+  const double travel = travelCost(drone, route, costs);
+  const double return_cost = costs.returns[drone][route.back()];
+  const bool travel_feasible = std::isfinite(travel) && std::isfinite(return_cost) &&
+    travel + return_cost <= costs.maximum_travel[drone] + kTolerance;
+  if (!travel_feasible || !hasResourceConstraint(costs)) return travel_feasible;
+
+  const auto & resources = *costs.resources;
+  const double resource = resourceTravelCost(drone, route, costs);
+  const double return_resource = resources.returns[drone][route.back()];
+  return std::isfinite(resource) && std::isfinite(return_resource) &&
+         resource + return_resource <= resources.maximum[drone] + kTolerance;
 }
 
 bool improveTwoOpt(
-  std::size_t drone,
-  std::vector<std::size_t> & route,
-  const std::vector<std::vector<double>> & start_costs,
-  const std::vector<std::vector<double>> & target_costs)
+  std::size_t drone, std::vector<std::size_t> & route, const SolverCosts & costs)
 {
   double best_delta = 0.0;
-  std::size_t best_begin = 0;
-  std::size_t best_end = 0;
+  std::vector<std::size_t> best_route;
   for (std::size_t begin = 0; begin < route.size(); ++begin) {
     for (std::size_t end = begin + 1; end < route.size(); ++end) {
-      const double old_front = begin == 0 ?
-        start_costs[drone][route[begin]] :
-        target_costs[route[begin - 1]][route[begin]];
-      const double new_front = begin == 0 ?
-        start_costs[drone][route[end]] :
-        target_costs[route[begin - 1]][route[end]];
-      double delta = new_front - old_front;
-      if (end + 1 < route.size()) {
-        delta += target_costs[route[begin]][route[end + 1]] -
-          target_costs[route[end]][route[end + 1]];
-      }
-      if (delta < best_delta - kImprovementTolerance) {
+      auto candidate = route;
+      std::reverse(candidate.begin() + begin, candidate.begin() + end + 1);
+      if (!routeFeasible(drone, candidate, costs)) continue;
+      const double delta = objectiveCost(drone, candidate, costs) -
+        objectiveCost(drone, route, costs);
+      if (delta < best_delta - kTolerance) {
         best_delta = delta;
-        best_begin = begin;
-        best_end = end;
+        best_route = std::move(candidate);
       }
     }
   }
-  if (best_delta >= -kImprovementTolerance) return false;
-  std::reverse(route.begin() + best_begin, route.begin() + best_end + 1);
+  if (best_route.empty()) return false;
+  route = std::move(best_route);
   return true;
 }
 
 bool improveRelocation(
   std::vector<std::vector<std::size_t>> & routes,
-  bool keep_nonempty,
-  const std::vector<std::vector<double>> & start_costs,
-  const std::vector<std::vector<double>> & target_costs)
+  bool keep_nonempty, const SolverCosts & costs)
 {
-  double best_delta = 0.0;
-  std::size_t best_source = 0;
-  std::size_t best_source_position = 0;
-  std::size_t best_destination = 0;
-  std::size_t best_destination_position = 0;
-  bool found = false;
-
+  const auto current_score = solutionScore(routes, costs);
+  auto best_score = current_score;
+  std::vector<std::vector<std::size_t>> best_routes;
   for (std::size_t source = 0; source < routes.size(); ++source) {
     if (keep_nonempty && routes[source].size() <= 1) continue;
     for (std::size_t source_position = 0;
       source_position < routes[source].size(); ++source_position)
     {
       const auto target = routes[source][source_position];
-      const double removal = removalDelta(
-        source, routes[source], source_position, start_costs, target_costs);
+      auto source_route = routes[source];
+      source_route.erase(source_route.begin() + source_position);
+      if (!routeFeasible(source, source_route, costs)) continue;
       for (std::size_t destination = 0; destination < routes.size(); ++destination) {
-        if (destination == source || !std::isfinite(start_costs[destination][target])) continue;
+        if (destination == source || !std::isfinite(costs.starts[destination][target])) continue;
         for (std::size_t destination_position = 0;
           destination_position <= routes[destination].size(); ++destination_position)
         {
-          const double delta = removal + insertionDelta(
-            destination, routes[destination], destination_position, target,
-            start_costs, target_costs);
-          if (delta < best_delta - kImprovementTolerance) {
-            best_delta = delta;
-            best_source = source;
-            best_source_position = source_position;
-            best_destination = destination;
-            best_destination_position = destination_position;
-            found = true;
+          auto destination_route = routes[destination];
+          destination_route.insert(
+            destination_route.begin() + destination_position, target);
+          if (!routeFeasible(destination, destination_route, costs)) continue;
+          auto candidate_routes = routes;
+          candidate_routes[source] = source_route;
+          candidate_routes[destination] = std::move(destination_route);
+          const auto candidate_score = solutionScore(candidate_routes, costs);
+          if (scoreBetter(candidate_score, best_score)) {
+            best_score = candidate_score;
+            best_routes = std::move(candidate_routes);
           }
         }
       }
     }
   }
-
-  if (!found) return false;
-  const auto target = routes[best_source][best_source_position];
-  routes[best_source].erase(routes[best_source].begin() + best_source_position);
-  routes[best_destination].insert(
-    routes[best_destination].begin() + best_destination_position, target);
+  if (best_routes.empty()) return false;
+  routes = std::move(best_routes);
   return true;
 }
 
 }  // namespace
 
 std::vector<RoutePlan> RouteSolver::solve(
-  const std::vector<std::vector<double>> & drone_start_costs,
-  const std::vector<std::vector<double>> & target_costs,
+  const Matrix & drone_start_costs,
+  const CostCube & drone_target_costs,
+  const std::vector<double> & route_base_costs,
+  const std::vector<double> & max_route_travel_costs,
+  const Matrix & target_return_costs,
   bool use_all_drones,
-  std::size_t max_improvement_passes)
+  std::size_t max_improvement_passes,
+  const RouteResourceCosts & resource_costs)
 {
-  validateCosts(drone_start_costs, target_costs);
   const std::size_t drone_count = drone_start_costs.size();
+  if (drone_count == 0) {
+    throw std::invalid_argument("route optimization requires at least one drone");
+  }
   const std::size_t target_count = drone_start_costs.front().size();
+  const std::vector<double> default_bases(drone_count, 0.0);
+  const std::vector<double> default_limits(
+    drone_count, std::numeric_limits<double>::infinity());
+  const Matrix default_returns(drone_count, std::vector<double>(target_count, 0.0));
+  const SolverCosts costs{
+    drone_start_costs,
+    drone_target_costs,
+    route_base_costs.empty() ? default_bases : route_base_costs,
+    max_route_travel_costs.empty() ? default_limits : max_route_travel_costs,
+    target_return_costs.empty() ? default_returns : target_return_costs,
+    &resource_costs};
+  validateCosts(costs);
   if (target_count == 0) return {};
+
+  Matrix seed_costs = drone_start_costs;
+  for (std::size_t drone = 0; drone < drone_count; ++drone) {
+    for (std::size_t target = 0; target < target_count; ++target) {
+      const std::vector<std::size_t> seed{target};
+      seed_costs[drone][target] = routeFeasible(drone, seed, costs) ?
+        objectiveCost(drone, seed, costs) : std::numeric_limits<double>::infinity();
+    }
+  }
 
   std::vector<std::vector<std::size_t>> routes(drone_count);
   std::vector<bool> assigned(target_count, false);
   if (use_all_drones) {
     if (drone_count <= target_count) {
-      const auto seeds = minimumRowAssignment(drone_start_costs);
+      const auto seeds = minimumRowAssignment(seed_costs);
       for (std::size_t drone = 0; drone < drone_count; ++drone) {
         routes[drone].push_back(seeds[drone]);
         assigned[seeds[drone]] = true;
       }
     } else {
-      std::vector<std::vector<double>> target_drone_costs(
-        target_count, std::vector<double>(drone_count));
+      Matrix target_drone_costs(target_count, std::vector<double>(drone_count));
       for (std::size_t target = 0; target < target_count; ++target) {
         for (std::size_t drone = 0; drone < drone_count; ++drone) {
-          target_drone_costs[target][drone] = drone_start_costs[drone][target];
+          target_drone_costs[target][drone] = seed_costs[drone][target];
         }
       }
       const auto seeds = minimumRowAssignment(target_drone_costs);
@@ -300,19 +388,26 @@ std::vector<RoutePlan> RouteSolver::solve(
 
   std::size_t assigned_count = std::count(assigned.begin(), assigned.end(), true);
   while (assigned_count < target_count) {
-    double best_delta = std::numeric_limits<double>::infinity();
+    SolutionScore best_score{
+      std::numeric_limits<double>::infinity(),
+      std::numeric_limits<double>::infinity(),
+      std::numeric_limits<double>::infinity()};
     std::size_t best_target = target_count;
     std::size_t best_drone = drone_count;
     std::size_t best_position = 0;
     for (std::size_t target = 0; target < target_count; ++target) {
       if (assigned[target]) continue;
       for (std::size_t drone = 0; drone < drone_count; ++drone) {
-        if (!std::isfinite(drone_start_costs[drone][target])) continue;
+        if (!std::isfinite(costs.starts[drone][target])) continue;
         for (std::size_t position = 0; position <= routes[drone].size(); ++position) {
-          const double delta = insertionDelta(
-            drone, routes[drone], position, target, drone_start_costs, target_costs);
-          if (delta < best_delta) {
-            best_delta = delta;
+          auto candidate_route = routes[drone];
+          candidate_route.insert(candidate_route.begin() + position, target);
+          if (!routeFeasible(drone, candidate_route, costs)) continue;
+          auto candidate_routes = routes;
+          candidate_routes[drone] = std::move(candidate_route);
+          const auto candidate_score = solutionScore(candidate_routes, costs);
+          if (scoreBetter(candidate_score, best_score)) {
+            best_score = candidate_score;
             best_target = target;
             best_drone = drone;
             best_position = position;
@@ -332,22 +427,16 @@ std::vector<RoutePlan> RouteSolver::solve(
   for (std::size_t pass = 0; pass < max_improvement_passes; ++pass) {
     bool improved = false;
     for (std::size_t drone = 0; drone < drone_count; ++drone) {
-      while (improveTwoOpt(drone, routes[drone], drone_start_costs, target_costs)) {
-        improved = true;
-      }
+      while (improveTwoOpt(drone, routes[drone], costs)) improved = true;
     }
-    if (improveRelocation(routes, keep_nonempty, drone_start_costs, target_costs)) {
-      improved = true;
-    }
+    if (improveRelocation(routes, keep_nonempty, costs)) improved = true;
     if (!improved) break;
   }
 
   std::vector<RoutePlan> plans;
   for (std::size_t drone = 0; drone < drone_count; ++drone) {
     if (routes[drone].empty()) continue;
-    plans.push_back({
-      drone, routes[drone],
-      routeCost(drone, routes[drone], drone_start_costs, target_costs)});
+    plans.push_back({drone, routes[drone], objectiveCost(drone, routes[drone], costs)});
   }
   return plans;
 }

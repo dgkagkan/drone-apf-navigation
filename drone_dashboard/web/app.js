@@ -19,6 +19,27 @@ function droneColor(id) {
   return colors[Math.abs(hash) % colors.length];
 }
 
+function batteryPresentation(drone) {
+  const labels = ["UNKNOWN", "NORMAL", "LOW", "RETURNING HOME", "EMERGENCY LAND"];
+  const stateName = labels[drone.battery_state] || "UNKNOWN";
+  const percentage = drone.battery_valid && drone.battery_remaining_pct != null ?
+    Math.max(0, Math.min(100, drone.battery_remaining_pct)) : null;
+  const time = drone.battery_time_remaining_s;
+  const timeText = time == null || time < 0 ? "" : ` · ${Math.ceil(time / 60)} min remaining`;
+  const powerText = drone.battery_power_w == null ? "" : ` · ${drone.battery_power_w.toFixed(0)} W`;
+  const energyText = drone.battery_remaining_energy_wh == null ? "" :
+    ` · ${drone.battery_remaining_energy_wh.toFixed(0)} Wh`;
+  const tone = drone.battery_state >= 4 ? "emergency" :
+    (drone.battery_state >= 2 ? "warning" : "normal");
+  return {
+    label: percentage == null ? `BATTERY ${stateName}` :
+      `BATTERY ${percentage.toFixed(0)}% · ${stateName}${timeText}${powerText}${energyText}`,
+    percentage: percentage == null ? 0 : percentage,
+    tone,
+    valid: percentage != null,
+  };
+}
+
 async function api(path, payload) {
   const response = await fetch(path, {
     method: "POST",
@@ -59,6 +80,9 @@ function render() {
   const age = Date.now() / 1000 - state.updated_at;
   setConnection(state.connected && age < 3, state.connected ? "Coordinator online" : "Waiting for ROS");
   document.getElementById("status-message").textContent = state.status_message;
+  const startMission = document.getElementById("start-mission");
+  startMission.disabled = !state.plan_ready || state.dispatch_in_progress;
+  startMission.textContent = state.plan_is_recalculation ? "START RECALCULATED MISSION" : "START MISSION";
   renderMetrics();
   renderTargets();
   renderDrones();
@@ -75,6 +99,7 @@ function renderMetrics() {
     [busy, "Busy"],
     [state.pending_target_count, "Pending targets"],
     [state.active_target_count, "Active targets"],
+    [state.planned_drone_count || 0, "Planned drones"],
   ];
   document.getElementById("metrics").innerHTML = values.map(([value, label]) =>
     `<div class="metric"><span>${label}</span><b>${value}</b></div>`
@@ -115,15 +140,36 @@ function renderDrones() {
     const speed = state.motion[drone.drone_id]?.speed_m_s;
     const obstacle = telemetry?.nearest_obstacle_m;
     const enabled = drone.operator_enabled;
+    const routingEnabled = enabled && !drone.safety_excluded;
+    const battery = batteryPresentation(drone);
+    const plannedRoute = (state.planned_assignments || []).filter(
+      assignment => assignment.drone_id === drone.drone_id);
+    const activeRoute = (state.assignments || []).filter(
+      assignment => assignment.drone_id === drone.drone_id);
+    const displayedRoute = plannedRoute.length ? plannedRoute : activeRoute;
+    const routeKind = plannedRoute.length ? "PREVIEW" : "ACTIVE ROUTE";
+    const routeCost = displayedRoute[0]?.route_total_cost;
     const speedCommand = speedDrafts.get(drone.drone_id) ??
       (drone.has_speed_override ? drone.speed_override_m_s.toFixed(1) : "15.0");
     const lidarRange = lidarRangeDrafts.get(drone.drone_id) ?? drone.lidar_range_m.toFixed(0);
-    const controlsDisabled = drone.connected && enabled ? "" : "disabled";
-    const badgeText = !enabled ? "OFF / EXCLUDED" : (drone.connected ? "connected" : "offline");
-    return `<article class="drone-card ${enabled ? "" : "excluded"}" style="border-top:2px solid ${droneColor(drone.drone_id)}">
-      <div class="drone-title"><h3>${drone.drone_id}</h3><span class="badge ${drone.connected && enabled ? "online" : ""}">${badgeText}</span></div>
+    const controlsDisabled = drone.connected && routingEnabled ? "" : "disabled";
+    const badgeText = drone.safety_excluded ?
+      (drone.return_home_active ? "BATTERY RTH" : "SAFETY EXCLUDED") :
+      (!enabled ? "OFF / EXCLUDED" : (drone.connected ? "connected" : "offline"));
+    const safetyActive = drone.safety_excluded && drone.battery_state >= 3;
+    const membershipDisabled = safetyActive ? "disabled" : "";
+    const membershipCommand = !enabled || drone.safety_excluded ? "rejoin" : "off";
+    const membershipLabel = safetyActive ? "SAFETY LOCK" :
+      ((!enabled || drone.safety_excluded) ? "REJOIN" : "OFF");
+    return `<article class="drone-card ${routingEnabled ? "" : "excluded"}" style="border-top:2px solid ${droneColor(drone.drone_id)}">
+      <div class="drone-title"><h3>${drone.drone_id}</h3><span class="badge ${drone.connected && routingEnabled ? "online" : ""}">${badgeText}</span></div>
       <div class="drone-position"><div><span>X</span>${p.x.toFixed(1)}</div><div><span>Y</span>${p.y.toFixed(1)}</div><div><span>Z</span>${p.z.toFixed(1)}</div></div>
       <div class="speed-line"><span>SPEED</span><b>${speed == null ? "—" : speed.toFixed(1)} m/s</b></div>
+      ${displayedRoute.length ? `<div class="route-summary"><span>${routeKind}</span><b>${displayedRoute.length} targets · ${routeCost == null ? "—" : routeCost.toFixed(1) + " s"}</b></div>` : ""}
+      <div class="battery-line ${battery.tone}">
+        <div><span>${battery.label}</span></div>
+        <div class="battery-track"><i style="width:${battery.valid ? battery.percentage : 0}%"></i></div>
+      </div>
       <div class="speed-control">
         <label>COMMAND<input type="number" min="10" max="20" step="0.5" value="${speedCommand}" data-drone-speed="${drone.drone_id}" ${controlsDisabled}></label>
         <button class="button primary" data-set-drone-speed="${drone.drone_id}" ${controlsDisabled}>SET</button>
@@ -139,7 +185,7 @@ function renderDrones() {
         <span class="flag ${drone.armed ? "on" : ""}">${drone.armed ? "ARMED" : "DISARMED"}</span>
         <span class="flag ${drone.offboard ? "on" : ""}">${drone.offboard ? "OFFBOARD" : "MANUAL"}</span>
         <span class="flag ${drone.localized ? "on" : ""}">LOCALIZED</span>
-        <span class="flag ${drone.available ? "on" : ""}">${!enabled ? "EXCLUDED" : (drone.busy ? "BUSY" : "AVAILABLE")}</span>
+        <span class="flag ${drone.available ? "on" : ""}">${!routingEnabled ? "EXCLUDED" : (drone.busy ? "BUSY" : "AVAILABLE")}</span>
       </div>
       <div class="apf-line">APF ${telemetry?.active_mode || "—"} · obstacle ${obstacle == null ? "—" : obstacle.toFixed(1) + " m"}</div>
       <div class="drone-actions">
@@ -147,7 +193,7 @@ function renderDrones() {
         <button class="button primary" data-drone-takeoff="${drone.drone_id}" ${controlsDisabled}>TAKEOFF</button>
         <button class="button" data-drone-home="${drone.drone_id}" ${controlsDisabled}>HOME</button>
         <button class="button danger" data-drone-land="${drone.drone_id}" ${controlsDisabled}>LAND</button>
-        <button class="button ${enabled ? "danger ghost" : "arm"}" data-drone-membership="${drone.drone_id}" data-membership-command="${enabled ? "off" : "rejoin"}">${enabled ? "OFF" : "REJOIN"}</button>
+        <button class="button ${enabled ? "danger ghost" : "arm"}" data-drone-membership="${drone.drone_id}" data-membership-command="${membershipCommand}" ${membershipDisabled}>${membershipLabel}</button>
       </div>
     </article>`;
   }).join("");
@@ -211,7 +257,8 @@ function drawMap() {
     drawPath(paths.flown || [], droneColor(id), 2.1, .8);
     drawPath(paths.nominal || [], droneColor(id), 1.1, .45, [7, 6]);
   });
-  drawAssignments();
+  drawAssignments(state.assignments, false);
+  drawAssignments(state.planned_assignments || [], true);
   state.pending_targets.forEach(target => drawTarget(target.position, target.target_id, "#ffbd52"));
   state.drones.forEach(drawDrone);
 }
@@ -249,27 +296,32 @@ function drawPath(points, color, width, alpha, dash = []) {
   context.stroke(); context.restore();
 }
 
-function drawAssignments() {
+function drawAssignments(assignments, preview) {
   const grouped = {};
-  state.assignments.forEach(item => (grouped[item.drone_id] ||= []).push(item));
+  assignments.forEach(item => (grouped[item.drone_id] ||= []).push(item));
   Object.entries(grouped).forEach(([id, items]) => {
     const drone = state.drones.find(candidate => candidate.drone_id === id);
     if (!drone) return;
-    drawPath([drone.position, ...items.map(item => item.position)], droneColor(id), 1.5, .7, [4, 5]);
-    items.forEach((item, index) => drawTarget(item.position, index + 1, droneColor(id)));
+    drawPath(
+      [drone.position, ...items.map(item => item.position)],
+      droneColor(id), preview ? 3.0 : 1.5, preview ? 1.0 : .7,
+      preview ? [10, 5] : [4, 5]);
+    items.forEach((item, index) =>
+      drawTarget(item.position, index + 1, droneColor(id), preview));
   });
 }
 
-function drawTarget(point, label, color) {
+function drawTarget(point, label, color, preview = false) {
   const p = worldToScreen(point);
-  context.save(); context.fillStyle = color; context.strokeStyle = "#061014"; context.lineWidth = 2;
+  context.save(); context.fillStyle = preview ? "#081219" : color; context.strokeStyle = color; context.lineWidth = preview ? 3 : 2;
   context.beginPath(); context.arc(p.x, p.y, 8, 0, Math.PI * 2); context.fill(); context.stroke();
-  context.fillStyle = "#071116"; context.font = "bold 9px sans-serif"; context.textAlign = "center"; context.textBaseline = "middle"; context.fillText(label, p.x, p.y + .5); context.restore();
+  context.fillStyle = preview ? color : "#071116"; context.font = "bold 9px sans-serif"; context.textAlign = "center"; context.textBaseline = "middle"; context.fillText(label, p.x, p.y + .5); context.restore();
 }
 
 function drawDrone(drone) {
   const p = worldToScreen(drone.position);
-  const color = drone.connected && drone.operator_enabled ? droneColor(drone.drone_id) : "#59636a";
+  const color = drone.connected && drone.operator_enabled && !drone.safety_excluded ?
+    droneColor(drone.drone_id) : "#59636a";
   context.save(); context.translate(p.x, p.y); context.fillStyle = color; context.strokeStyle = "#071014"; context.lineWidth = 2;
   context.beginPath(); context.moveTo(0, -11); context.lineTo(9, 9); context.lineTo(0, 5); context.lineTo(-9, 9); context.closePath(); context.fill(); context.stroke(); context.restore();
   const speed = state.motion[drone.drone_id]?.speed_m_s;
@@ -297,7 +349,8 @@ function drawVector(origin, vector, color) {
 }
 
 function allDrones(kind) {
-  const drones = (state?.drones || []).filter(drone => drone.connected && drone.operator_enabled);
+  const drones = (state?.drones || []).filter(
+    drone => drone.connected && drone.operator_enabled && !drone.safety_excluded);
   if (!drones.length) return toast("No connected drones", true);
   const altitude = Number(document.getElementById("takeoff-altitude").value);
   api("/api/swarm-command", { command: kind, altitude_m: altitude }).catch(() => {});

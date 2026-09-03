@@ -12,19 +12,20 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(drone_interfaces REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 
 add_executable(swarm_member_node src/swarm_member_node.cpp)
 target_compile_features(swarm_member_node PRIVATE cxx_std_17)
-ament_target_dependencies(swarm_member_node drone_interfaces rclcpp rclcpp_action)
+ament_target_dependencies(swarm_member_node
+  drone_interfaces geometry_msgs rclcpp rclcpp_action)
 
 install(TARGETS
   swarm_member_node
   RUNTIME DESTINATION lib/${PROJECT_NAME})
 
 if(NOT DRONE_ONBOARD_BUILD)
-  find_package(geometry_msgs REQUIRED)
   find_package(nav_msgs REQUIRED)
   find_package(visualization_msgs REQUIRED)
 
@@ -40,9 +41,15 @@ if(NOT DRONE_ONBOARD_BUILD)
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
 
+  add_library(flight_cost_model src/flight_cost_model.cpp)
+  target_compile_features(flight_cost_model PUBLIC cxx_std_17)
+  target_include_directories(flight_cost_model PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+
   add_executable(swarm_coordinator_node src/swarm_coordinator_node.cpp)
   target_compile_features(swarm_coordinator_node PRIVATE cxx_std_17)
-  target_link_libraries(swarm_coordinator_node route_solver)
+  target_link_libraries(swarm_coordinator_node flight_cost_model route_solver)
   ament_target_dependencies(swarm_coordinator_node
     drone_interfaces geometry_msgs rclcpp rclcpp_action)
 
@@ -57,6 +64,7 @@ if(NOT DRONE_ONBOARD_BUILD)
 
   install(TARGETS
     assignment_solver
+    flight_cost_model
     route_solver
     swarm_coordinator_node
     swarm_operator_node
@@ -79,6 +87,9 @@ if(NOT DRONE_ONBOARD_BUILD)
     ament_add_gtest(test_route_solver test/test_route_solver.cpp)
     target_compile_features(test_route_solver PRIVATE cxx_std_17)
     target_link_libraries(test_route_solver route_solver)
+    ament_add_gtest(test_flight_cost_model test/test_flight_cost_model.cpp)
+    target_compile_features(test_flight_cost_model PRIVATE cxx_std_17)
+    target_link_libraries(test_flight_cost_model flight_cost_model)
   endif()
 endif()
 

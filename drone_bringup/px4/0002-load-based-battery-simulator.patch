@@ -1,0 +1,331 @@
+diff --git a/src/modules/simulation/battery_simulator/BatterySimulator.cpp b/src/modules/simulation/battery_simulator/BatterySimulator.cpp
+index 36c9961bc1..652d415ec8 100644
+--- a/src/modules/simulation/battery_simulator/BatterySimulator.cpp
++++ b/src/modules/simulation/battery_simulator/BatterySimulator.cpp
+@@ -41,6 +41,8 @@ BatterySimulator::BatterySimulator() :
+ 	ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::hp_default),
+ 	_battery(1, this, BATTERY_SIMLATOR_SAMPLE_INTERVAL_US, battery_status_s::SOURCE_POWER_MODULE)
+ {
++	updateParams();
++	_battery_percentage = math::constrain(_param_bat_init_pct.get() / 100.f, 0.f, 1.f);
+ }
+ 
+ BatterySimulator::~BatterySimulator()
+@@ -76,50 +78,104 @@ void BatterySimulator::Run()
+ 	updateCommands();
+ 
+ 	if (_vehicle_status_sub.updated()) {
+-		vehicle_status_s vehicle_status;
+-
+-		if (_vehicle_status_sub.copy(&vehicle_status)) {
+-			_armed = (vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED);
++		if (_vehicle_status_sub.copy(&_vehicle_status)) {
++			_armed = (_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED);
+ 		}
+ 	}
+ 
+-	const hrt_abstime now_us = hrt_absolute_time();
++	if (_vehicle_local_position_sub.update(&_vehicle_local_position)) {
++		_have_local_velocity = _vehicle_local_position.v_xy_valid && _vehicle_local_position.v_z_valid;
++	}
+ 
+-	// Limit to +1.0 s to guard against division by 0
+-	const float discharge_interval_us = math::max(_param_sim_bat_drain.get(), 1.0f) * 1000 * 1000;
++	if (_vehicle_land_detected_sub.update(&_vehicle_land_detected)) {
++		_landed = _vehicle_land_detected.landed;
++	}
+ 
+-	if (_armed) {
+-		if (_last_integration_us != 0) {
+-			_battery_percentage -= (now_us - _last_integration_us) / discharge_interval_us;
++	const hrt_abstime now_us = hrt_absolute_time();
++	const float power_w = estimatePowerW();
++	if (_last_integration_us != 0) {
++		const float elapsed_s = math::min((now_us - _last_integration_us) / 1e6f, 0.25f);
++		const float capacity_wh = _param_bat_capacity_wh.get();
++		if (capacity_wh > FLT_EPSILON) {
++			_battery_percentage -= power_w * elapsed_s / (capacity_wh * 3600.f);
++
++		} else if (_armed) {
++			_battery_percentage -= elapsed_s / math::max(_param_sim_bat_drain.get(), 1.f);
+ 		}
+-
+-		_last_integration_us = now_us;
+-
+-	} else {
+-		_battery_percentage = 1.f;
+-		_last_integration_us = 0;
+ 	}
+-
+-	float ibatt = -1.0f; // no current sensor in simulation
++	_last_integration_us = now_us;
+ 
+ 	_battery_percentage = math::max(_battery_percentage, _param_bat_min_pct.get() / 100.f);
+-	float vbatt = math::interpolate(_battery_percentage, 0.f, 1.f, _battery.empty_cell_voltage(),
+-					_battery.full_cell_voltage());
++	const float reported_percentage = _force_empty_battery ? 0.f : _battery_percentage;
++	const int cell_count = math::max(_battery.cell_count(), 1);
++	const float open_circuit_voltage_v = openCircuitCellVoltage(reported_percentage) * cell_count;
++	const float current_a = power_w / math::max(open_circuit_voltage_v, 1.f);
++	float voltage_v = math::max(
++		_battery.empty_cell_voltage() * cell_count,
++		open_circuit_voltage_v - current_a * _param_bat_resistance_ohm.get());
+ 
+ 	if (_force_empty_battery) {
+-		vbatt = _battery.empty_cell_voltage();
++		voltage_v = _battery.empty_cell_voltage() * cell_count;
+ 	}
+ 
+-	vbatt *= _battery.cell_count();
+-
++	const float nominal_voltage_v = 3.7f * cell_count;
+ 	_battery.setConnected(true);
+-	_battery.updateVoltage(vbatt);
+-	_battery.updateCurrent(ibatt);
++	_battery.setCapacityMah(_param_bat_capacity_wh.get() * 1000.f / nominal_voltage_v);
++	_battery.setStateOfCharge(reported_percentage);
++	_battery.updateVoltage(voltage_v);
++	_battery.updateCurrent(current_a);
+ 	_battery.updateAndPublishBatteryStatus(now_us);
+ 
+ 	perf_end(_loop_perf);
+ }
+ 
++float BatterySimulator::estimatePowerW() const
++{
++	if (!_armed) {
++		return _param_bat_idle_w.get();
++	}
++
++	if (_landed) {
++		return _param_bat_ground_w.get();
++	}
++
++	if (_vehicle_status.in_transition_mode) {
++		return _param_bat_transition_w.get();
++	}
++
++	float horizontal_speed_m_s = 0.f;
++	float climb_speed_m_s = 0.f;
++	if (_have_local_velocity) {
++		horizontal_speed_m_s = hypotf(_vehicle_local_position.vx, _vehicle_local_position.vy);
++		climb_speed_m_s = math::max(-_vehicle_local_position.vz, 0.f);
++	}
++
++	float power_w = 0.f;
++	if (_vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING) {
++		const float reference_speed_m_s = math::max(_param_bat_fw_reference_m_s.get(), 1.f);
++		const float speed_ratio = math::constrain(horizontal_speed_m_s / reference_speed_m_s, 0.5f, 2.f);
++		power_w = _param_bat_fw_w.get() * (0.7f + 0.3f * speed_ratio * speed_ratio * speed_ratio);
++
++	} else {
++		power_w = _param_bat_mc_w.get() +
++			_param_bat_mc_speed_k.get() * horizontal_speed_m_s * horizontal_speed_m_s;
++	}
++
++	return power_w + _param_bat_climb_w.get() * climb_speed_m_s;
++}
++
++float BatterySimulator::openCircuitCellVoltage(float state_of_charge)
++{
++	const float state = math::constrain(state_of_charge, 0.f, 1.f);
++	const float empty_v = _battery.empty_cell_voltage();
++	const float charged_v = _battery.full_cell_voltage();
++	if (state <= 0.1f) return math::interpolate(state, 0.f, 0.1f, empty_v, 3.65f);
++	if (state <= 0.2f) return math::interpolate(state, 0.1f, 0.2f, 3.65f, 3.72f);
++	if (state <= 0.5f) return math::interpolate(state, 0.2f, 0.5f, 3.72f, 3.80f);
++	if (state <= 0.8f) return math::interpolate(state, 0.5f, 0.8f, 3.80f, 3.95f);
++	return math::interpolate(state, 0.8f, 1.f, 3.95f, charged_v);
++}
++
+ void BatterySimulator::updateCommands()
+ {
+ 	vehicle_command_s vehicle_command;
+diff --git a/src/modules/simulation/battery_simulator/BatterySimulator.hpp b/src/modules/simulation/battery_simulator/BatterySimulator.hpp
+index 553d5864b2..271019493c 100644
+--- a/src/modules/simulation/battery_simulator/BatterySimulator.hpp
++++ b/src/modules/simulation/battery_simulator/BatterySimulator.hpp
+@@ -44,6 +44,8 @@
+ #include <uORB/SubscriptionInterval.hpp>
+ #include <uORB/topics/battery_status.h>
+ #include <uORB/topics/parameter_update.h>
++#include <uORB/topics/vehicle_land_detected.h>
++#include <uORB/topics/vehicle_local_position.h>
+ #include <uORB/topics/vehicle_status.h>
+ #include <uORB/topics/vehicle_command.h>
+ #include <uORB/topics/vehicle_command_ack.h>
+@@ -72,12 +74,16 @@ public:
+ private:
+ 	void Run() override;
+ 	void updateCommands();
++	float estimatePowerW() const;
++	float openCircuitCellVoltage(float state_of_charge);
+ 
+ 	static constexpr uint32_t BATTERY_SIMLATOR_SAMPLE_FREQUENCY_HZ = 100; // Hz
+ 	static constexpr uint32_t BATTERY_SIMLATOR_SAMPLE_INTERVAL_US = 1_s / BATTERY_SIMLATOR_SAMPLE_FREQUENCY_HZ;
+ 
+ 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
+ 	uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
++	uORB::Subscription _vehicle_local_position_sub{ORB_ID(vehicle_local_position)};
++	uORB::Subscription _vehicle_land_detected_sub{ORB_ID(vehicle_land_detected)};
+ 
+ 	uORB::Subscription _vehicle_command_sub{ORB_ID(vehicle_command)};
+ 	uORB::Publication<vehicle_command_ack_s> _command_ack_pub{ORB_ID(vehicle_command_ack)};
+@@ -87,6 +93,11 @@ private:
+ 	uint64_t _last_integration_us{0};
+ 	float _battery_percentage{1.f};
+ 	bool _armed{false};
++	vehicle_status_s _vehicle_status{};
++	vehicle_local_position_s _vehicle_local_position{};
++	vehicle_land_detected_s _vehicle_land_detected{};
++	bool _have_local_velocity{false};
++	bool _landed{true};
+ 
+ 	bool _force_empty_battery{false};
+ 
+@@ -94,6 +105,17 @@ private:
+ 
+ 	DEFINE_PARAMETERS(
+ 		(ParamFloat<px4::params::SIM_BAT_DRAIN>) _param_sim_bat_drain, ///< battery drain interval
+-		(ParamFloat<px4::params::SIM_BAT_MIN_PCT>) _param_bat_min_pct //< minimum battery percentage
++		(ParamFloat<px4::params::SIM_BAT_MIN_PCT>) _param_bat_min_pct,
++		(ParamFloat<px4::params::SIM_BAT_INIT_PCT>) _param_bat_init_pct,
++		(ParamFloat<px4::params::SIM_BAT_CAP_WH>) _param_bat_capacity_wh,
++		(ParamFloat<px4::params::SIM_BAT_IDLE_W>) _param_bat_idle_w,
++		(ParamFloat<px4::params::SIM_BAT_GND_W>) _param_bat_ground_w,
++		(ParamFloat<px4::params::SIM_BAT_MC_W>) _param_bat_mc_w,
++		(ParamFloat<px4::params::SIM_BAT_FW_W>) _param_bat_fw_w,
++		(ParamFloat<px4::params::SIM_BAT_TRNS_W>) _param_bat_transition_w,
++		(ParamFloat<px4::params::SIM_BAT_CLMB_W>) _param_bat_climb_w,
++		(ParamFloat<px4::params::SIM_BAT_MC_K>) _param_bat_mc_speed_k,
++		(ParamFloat<px4::params::SIM_BAT_FW_REF>) _param_bat_fw_reference_m_s,
++		(ParamFloat<px4::params::SIM_BAT_R_OHM>) _param_bat_resistance_ohm
+ 	)
+ };
+diff --git a/src/modules/simulation/battery_simulator/battery_simulator_params.yaml b/src/modules/simulation/battery_simulator/battery_simulator_params.yaml
+index db3ac91ce8..765386f746 100644
+--- a/src/modules/simulation/battery_simulator/battery_simulator_params.yaml
++++ b/src/modules/simulation/battery_simulator/battery_simulator_params.yaml
+@@ -4,9 +4,9 @@ parameters:
+   definitions:
+     SIM_BAT_DRAIN:
+       description:
+-        short: Simulated battery full-discharge time
++        short: Legacy simulated battery full-discharge time
+         long: |-
+-          Time in seconds for the simulated battery to drain from 100% to 0% while armed. Set to 0 to disable the battery simulator entirely (useful when battery state is provided externally, e.g. via MAVLink).
++          Time in seconds for the simulated battery to drain from 100% to 0% while armed when SIM_BAT_CAP_WH is zero. Set to 0 to disable the battery simulator entirely.
+       type: float
+       default: 60
+       min: 0
+@@ -19,8 +19,109 @@ parameters:
+           Can be used to alter the battery level during SITL- or HITL-simulation on the fly.
+           Particularly useful for testing different low-battery behaviour.
+       type: float
+-      default: 50.0
++      default: 0.0
+       min: 0
+       max: 100
+       increment: 0.1
+       unit: '%'
++    SIM_BAT_INIT_PCT:
++      description:
++        short: Initial simulated battery percentage
++        long: |-
++          State of charge applied when the battery simulator starts. Disarming does not recharge the simulated battery.
++      type: float
++      default: 100.0
++      min: 0
++      max: 100
++      increment: 0.1
++      unit: '%'
++    SIM_BAT_CAP_WH:
++      description:
++        short: Simulated usable battery capacity
++        long: |-
++          Usable pack energy for load-based discharge. Set to zero to use the legacy SIM_BAT_DRAIN model.
++      type: float
++      default: 250.0
++      min: 0
++      max: 5000
++      increment: 1
++    SIM_BAT_IDLE_W:
++      description:
++        short: Disarmed electronics power
++      type: float
++      default: 12.0
++      min: 0
++      max: 1000
++      increment: 1
++    SIM_BAT_GND_W:
++      description:
++        short: Armed landed power
++      type: float
++      default: 40.0
++      min: 0
++      max: 2000
++      increment: 1
++    SIM_BAT_MC_W:
++      description:
++        short: Multicopter hover power
++      type: float
++      default: 450.0
++      min: 1
++      max: 10000
++      increment: 5
++    SIM_BAT_FW_W:
++      description:
++        short: Fixed-wing reference cruise power
++      type: float
++      default: 220.0
++      min: 1
++      max: 10000
++      increment: 5
++    SIM_BAT_TRNS_W:
++      description:
++        short: VTOL transition power
++      type: float
++      default: 650.0
++      min: 1
++      max: 10000
++      increment: 5
++    SIM_BAT_CLMB_W:
++      description:
++        short: Additional power per climb speed
++        long: |-
++          Additional power applied for each metre per second of positive vertical speed.
++      type: float
++      default: 100.0
++      min: 0
++      max: 2000
++      increment: 5
++    SIM_BAT_MC_K:
++      description:
++        short: Multicopter horizontal speed power coefficient
++        long: |-
++          Additional multicopter power equals this coefficient multiplied by horizontal speed squared.
++      type: float
++      default: 2.0
++      min: 0
++      max: 100
++      increment: 0.1
++    SIM_BAT_FW_REF:
++      description:
++        short: Fixed-wing reference airspeed
++      type: float
++      default: 15.0
++      min: 1
++      max: 100
++      increment: 0.5
++      unit: m/s
++    SIM_BAT_R_OHM:
++      description:
++        short: Simulated total pack resistance
++        long: |-
++          Pack resistance used to model load-dependent voltage sag.
++      type: float
++      default: 0.04
++      min: 0
++      max: 2
++      increment: 0.01
++      unit: Ohm

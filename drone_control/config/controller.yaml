@@ -24,6 +24,7 @@ gimbal_control:
 px4_gateway:
   ros__parameters:
     command_timeout_s: 0.5
+    land_detected_timeout_s: 1.0
     fw_lookahead_m: 40.0
     max_horizontal_speed_m_s: 25.0
     max_vertical_speed_m_s: 5.0
@@ -33,10 +34,22 @@ px4_gateway:
     map_origin_north_m: 0.0
     map_origin_up_m: 0.0
 
+swarm_member:
+  ros__parameters:
+    state_timeout_sec: 1.0
+    registration_refresh_sec: 2.0
+    heartbeat_period_sec: 0.5
+    battery.low_pct: 40.0
+    battery.critical_pct: 25.0
+    battery.emergency_pct: 15.0
+    battery.recovery_pct: 50.0
+    battery.coordinator_rth_timeout_sec: 2.0
+    battery.fallback_home_altitude_m: 15.0
+    battery.fallback_home_speed_m_s: 15.0
+
 flight_supervisor:
   ros__parameters:
     takeoff_tolerance_m: 0.5
-    landed_altitude_m: 0.3
     vehicle_command_period_s: 1.0
 
 automated_mission:
@@ -118,6 +131,11 @@ navigation_server:
     altitude_gain: 0.8
     max_vertical_speed_m_s: 3.0
     transition_request_period_s: 1.0
+
+route_executor:
+  ros__parameters:
+    home.horizontal_tolerance_m: 0.5
+    home.altitude_tolerance_m: 0.5
 
 navigation_client:
   ros__parameters:

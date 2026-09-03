@@ -15,7 +15,9 @@ automated_mission ----------------/
 route_executor -> /swarm/mission_feedback -> swarm_coordinator
 
 /scan_3d/points -> lidar_processor -> /perception/obstacles -> apf_safety
-/fmu/out/* -> px4_gateway -> /vehicle/state -> control and navigation nodes
+/fmu/out/* (including BatteryStatus) -> px4_gateway -> /vehicle/state
+    -> onboard swarm_member -> /swarm/drone_heartbeat -> swarm_coordinator
+    -> /swarm/state -> dashboard
 ```
 
 `lidar_processor` keeps the available horizontal LiDAR field of view and
@@ -102,10 +104,12 @@ ros2 service call /flight/arm drone_interfaces/srv/Arm "{arm: true}"
 ## Swarm Coordinator
 
 The coordinator never moves a drone when a target is submitted. Each target is
-validated and stored in `pending_targets`; routing starts only after a typed
-`CALCULATE` or `RECALCULATE` command. At that moment the coordinator snapshots
-the connected, localized, available drones and builds one ordered route per
-selected drone. It then publishes one typed broadcast containing all routes on
+validated and stored in `pending_targets`. `CALCULATE` or `RECALCULATE` only
+snapshots the targets and healthy drones, builds ordered routes, stores them as
+`planned_routes`, and publishes `planned_assignments` in `/swarm/state` for map
+preview. No drone receives a route at this stage. The separate typed
+`START_MISSION` command revalidates that the target set and selected drones have
+not changed and then publishes one broadcast containing all routes on
 `/swarm/mission_command`. Every drone receives the broadcast but processes only
 the `SwarmRoute` whose `drone_id` matches its own ID. Targets move to
 `active_targets` only after every selected drone acknowledges that it accepted
@@ -130,17 +134,33 @@ The authoritative list and health of all members is published in
 
 The scalable route solver has no hard target-count limit. It starts from a
 global drone-to-target seed assignment, adds every remaining target at its
-lowest insertion cost, and improves the result with 2-opt and cross-route
-relocation passes. Every target appears exactly once. The optimized cost is the
-sum of the 3D legs from each current drone position through its ordered targets;
-return-to-base is not required.
+best balanced insertion, and improves the result with 2-opt and cross-route
+relocation passes. The route objective is lexicographic: minimize the highest
+drone completion cost first, then the spread between the longest and shortest
+routes, and finally the total swarm cost. Every target appears exactly once.
+Costs are estimated independently for each drone in seconds from commanded
+speed, vertical travel, current heading, fixed-wing turn rate, VTOL transitions,
+and configurable APF detour factors. Workload and route-change penalties avoid
+unnecessary reassignment. Battery penalties and time/energy reserves reject
+routes that cannot be completed safely while preserving return-home reserve.
+
+Battery safety is decided locally by `swarm_member_node`, so it remains active
+if the coordinator or Ethernet link disappears. A critical battery latches an
+RTH request and stops the drone accepting new tasks. The coordinator excludes
+that drone, returns only its unfinished targets to `pending_targets`, sends a
+targeted home route, and recalculates those tasks over the remaining healthy
+drones. If no coordinator acknowledgement arrives before the configured
+timeout, the local brain sends its own home goal. Emergency battery causes a
+local LAND. The latch clears only while disarmed and above the recovery level;
+manual OFF/REJOIN remains a separate operator state.
 
 ```bash
 ros2 service call /swarm/add_target drone_interfaces/srv/AddSwarmTarget \
   "{target: {header: {frame_id: map}, pose: {position: {x: 25.0, y: 700.0, z: 14.0}}}, cruise_speed_m_s: 20.0, use_fixed_wing: true}"
 
-# CALCULATE=0, CLEAR_PENDING_TARGETS=1, CANCEL_ACTIVE_MISSION=2, RECALCULATE=3
+# CALCULATE=0, RECALCULATE=3, START_MISSION=13
 ros2 service call /swarm/command drone_interfaces/srv/SwarmCommand "{command: 0}"
+ros2 service call /swarm/command drone_interfaces/srv/SwarmCommand "{command: 13}"
 ```
 
 The swarm terminal can prepare all drones or one selected drone before
@@ -154,6 +174,7 @@ swarm> arm 1
 swarm> takeoff
 swarm> takeoff 1
 swarm> calculate
+swarm> start
 ```
 
 `drone_bringup/launch/swarm.launch.py` starts the coordinator and its terminal.
@@ -174,9 +195,10 @@ requests are translated to the existing ROS services/actions, while
 routes, cancellation, and return-home state.
 
 The map uses local ENU coordinates and works without internet map tiles. Click
-to fill a target's east/north coordinates, choose altitude, speed, and VTOL
-mode, then press `ADD TARGET`. Targets stay pending until `CALCULATE` or
-`RECALCULATE`. The dashboard also supports one-target removal, clear pending,
+to add a target with the selected altitude, speed, and VTOL mode. `CALCULATE`
+and `RECALCULATE` draw a route preview without moving a drone; `START MISSION`
+dispatches the displayed plan. The dashboard also supports target removal,
+clear pending,
 mission cancel, swarm or per-drone arm/takeoff/home, dynamic drone cards, route
 progress, nominal/flown paths, and APF vectors.
 
@@ -189,10 +211,13 @@ override and returns to each route target's stored speed. Drone cards and map
 labels show the measured 3D speed from the namespaced `VehicleState` velocity.
 The dashboard never publishes a direct PX4 velocity command.
 
-`HOME ALL` or a per-drone `HOME` replaces the current coordinated mission.
-Unfinished mission targets return to the pending buffer before the selected
-return-home route is broadcast, so no old route continues outside coordinator
-ownership.
+`HOME ALL`, per-drone `HOME`, per-drone `LAND`, and per-drone `OFF` carry an
+explicit `target_drone_ids` list. Each route executor ignores commands that do
+not contain its own ID. Only the selected drone's route is detached, its
+unfinished targets return to the pending buffer, and an auxiliary home route
+can run without cancelling other drones. HOME returns to the exact recorded
+spawn x/y at safe altitude, switches to multicopter for a 0.5 m precision
+approach, and then commands local LAND.
 
 Gazebo camera images are bridged only on the simulation PC. The simulated
 camera is configured as 640x360 at 10 Hz, and the dashboard serves JPEG previews
@@ -235,17 +260,17 @@ and the onboard brain in the same explicit ROS domain:
 ```bash
 # Main PC
 ros2 launch drone_bringup swarm_sim.launch.py \
-  network_mode:=lan ros_domain_id:=10
+  network_mode:=lan ros_domain_id:=0
 
 ros2 launch drone_bringup add_sim_vehicle.launch.py \
   drone_id:=drone_4 px4_instance:=3 system_id:=4 agent_port:=8891 \
-  network_mode:=lan ros_domain_id:=10
+  network_mode:=lan ros_domain_id:=0
 
 # Raspberry Pi
 ros2 launch drone_bringup drone_brain.launch.py \
   drone_id:=drone_4 target_system:=4 use_sim_time:=true \
   use_ground_truth:=false lidar_points_topic:=scan_3d/filtered_points \
-  publish_robot_description:=false network_mode:=lan ros_domain_id:=10
+  publish_robot_description:=false network_mode:=lan ros_domain_id:=0
 ```
 
 Gazebo Transport and the PX4-to-agent UDP links remain on the PC. ROS 2 uses the

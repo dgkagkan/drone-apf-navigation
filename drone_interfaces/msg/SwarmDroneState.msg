@@ -1,4 +1,11 @@
 std_msgs/Header header
+
+uint8 BATTERY_STATE_UNKNOWN=0
+uint8 BATTERY_STATE_NORMAL=1
+uint8 BATTERY_STATE_LOW=2
+uint8 BATTERY_STATE_RETURN_HOME=3
+uint8 BATTERY_STATE_EMERGENCY_LAND=4
+
 string drone_id
 string drone_namespace
 string boot_id
@@ -17,5 +24,14 @@ bool supports_vtol
 bool has_speed_override
 float64 speed_override_m_s
 float64 lidar_range_m
+bool battery_valid
+float64 battery_remaining_pct
+float64 battery_time_remaining_s
+float64 battery_power_w
+float64 battery_capacity_wh
+float64 battery_remaining_energy_wh
+uint8 battery_state
+bool safety_excluded
+bool return_home_active
 float64 last_update_age_sec
 geometry_msgs/Point position
