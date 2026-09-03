@@ -49,6 +49,7 @@ public:
       0.1, declare_parameter<double>("heartbeat_period_sec", 0.5));
     heartbeat_period_s_ = requested_heartbeat_period_s_;
     has_lidar_ = declare_parameter<bool>("has_lidar", true);
+    has_gimbal_ = declare_parameter<bool>("has_gimbal", true);
     supports_fixed_wing_ = declare_parameter<bool>("supports_fixed_wing", true);
     supports_vtol_ = declare_parameter<bool>("supports_vtol", true);
     battery_low_pct_ = std::clamp(
@@ -309,6 +310,7 @@ private:
     request->arm_service = arm_service_;
     request->takeoff_action = takeoff_action_;
     request->has_lidar = has_lidar_;
+    request->has_gimbal = has_gimbal_;
     request->supports_fixed_wing = supports_fixed_wing_;
     request->supports_vtol = supports_vtol_;
     registration_request_in_progress_ = true;
@@ -386,6 +388,7 @@ private:
   double fallback_home_altitude_m_ {15.0};
   double fallback_home_speed_m_s_ {15.0};
   bool has_lidar_ {true};
+  bool has_gimbal_ {true};
   bool supports_fixed_wing_ {true};
   bool supports_vtol_ {true};
   bool have_state_ {false};

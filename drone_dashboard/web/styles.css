@@ -126,6 +126,20 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px rgba(73, 216, 208
 .drone-actions .button { padding: 7px 4px; }
 .apf-line { color: var(--muted); font-size: 10px; margin: 8px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .camera-grid { padding: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; }
+.gimbal-control-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px 18px 14px; border-bottom: 1px solid var(--line); background: rgba(73, 216, 208, .035); }
+.gimbal-target { display: grid; justify-items: center; gap: 5px; min-width: 190px; }
+.gimbal-target label, .gimbal-control-panel > p { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+.gimbal-target select { min-width: 190px; border: 1px solid var(--line); border-radius: 7px; color: var(--text); background: #0b141b; padding: 9px; outline: none; }
+.gimbal-target select:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px rgba(73, 216, 208, .12); }
+.gimbal-pad { display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px); gap: 6px; justify-content: center; }
+.gimbal-button { width: 52px; height: 52px; padding: 0; display: grid; place-items: center; font-size: 23px; line-height: 1; user-select: none; touch-action: none; }
+.gimbal-up { grid-column: 2; grid-row: 1; }
+.gimbal-left { grid-column: 1; grid-row: 2; }
+.gimbal-home { grid-column: 2; grid-row: 2; font-size: 22px; }
+.gimbal-right { grid-column: 3; grid-row: 2; }
+.gimbal-down { grid-column: 2; grid-row: 3; }
+.gimbal-button.is-held { border-color: var(--cyan); box-shadow: 0 0 0 2px rgba(73, 216, 208, .18); transform: translateY(-1px); }
+.gimbal-control-panel > p { margin: 0; text-align: center; font-weight: 500; letter-spacing: 0; text-transform: none; }
 .camera { aspect-ratio: 16 / 9; background: #030608; position: relative; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
 .camera img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .camera-label { position: absolute; top: 9px; left: 9px; background: rgba(0,0,0,.72); padding: 5px 8px; border-radius: 5px; font-size: 10px; font-weight: 800; }

@@ -21,6 +21,7 @@ find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2_sensor_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 
 add_library(apf_solver src/apf_solver.cpp)
@@ -67,6 +68,13 @@ target_compile_features(navigation_server_node PRIVATE cxx_std_17)
 ament_target_dependencies(navigation_server_node
   drone_interfaces geometry_msgs rclcpp rclcpp_action std_msgs)
 
+# Lightweight onboard mapping relay. It only filters and timestamp-transforms
+# clouds; the stateful OctoMap fusion remains a PC-only executable below.
+add_executable(point_cloud_throttle_node src/point_cloud_throttle_node.cpp)
+target_compile_features(point_cloud_throttle_node PRIVATE cxx_std_17)
+ament_target_dependencies(point_cloud_throttle_node
+  drone_interfaces rclcpp sensor_msgs tf2 tf2_ros tf2_sensor_msgs)
+
 set(drone_navigation_targets
   apf_solver
   nominal_path_planner
@@ -75,20 +83,16 @@ set(drone_navigation_targets
   command_mux_node
   lidar_processor_node
   route_executor_node
-  navigation_server_node)
+  navigation_server_node
+  point_cloud_throttle_node)
 
 if(NOT DRONE_ONBOARD_BUILD)
-  add_executable(point_cloud_throttle_node src/point_cloud_throttle_node.cpp)
-  target_compile_features(point_cloud_throttle_node PRIVATE cxx_std_17)
-  ament_target_dependencies(point_cloud_throttle_node rclcpp sensor_msgs)
-
   add_executable(navigation_client_node src/navigation_client_node.cpp)
   target_compile_features(navigation_client_node PRIVATE cxx_std_17)
   ament_target_dependencies(navigation_client_node
     drone_interfaces rclcpp rclcpp_action std_srvs)
 
   list(APPEND drone_navigation_targets
-    point_cloud_throttle_node
     navigation_client_node)
 endif()
 

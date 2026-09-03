@@ -19,6 +19,7 @@ bool busy
 bool armed
 bool offboard
 bool has_lidar
+bool has_gimbal
 bool supports_fixed_wing
 bool supports_vtol
 bool has_speed_override

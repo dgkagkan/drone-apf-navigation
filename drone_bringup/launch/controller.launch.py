@@ -13,6 +13,7 @@ def generate_launch_description():
     use_local_joy = LaunchConfiguration("use_local_joy")
     manual_control_enabled = LaunchConfiguration("manual_control_enabled")
     gimbal_control_enabled = LaunchConfiguration("gimbal_control_enabled")
+    gimbal_mux_enabled = LaunchConfiguration("gimbal_mux_enabled")
     visualization_enabled = LaunchConfiguration("visualization_enabled")
     navigation_client_terminal = LaunchConfiguration("navigation_client_terminal")
     swarm_member_enabled = LaunchConfiguration("swarm_member_enabled")
@@ -91,9 +92,11 @@ def generate_launch_description():
         ("/apf/forces", "apf/forces"),
         ("/apf/obstacles_used", "apf/obstacles_used"),
         ("/apf/obstacles_sector_ignored", "apf/obstacles_sector_ignored"),
-        ("/gimbal/cmd_pan", "gimbal/cmd_pan"),
-        ("/gimbal/cmd_tilt", "gimbal/cmd_tilt"),
         ("/gimbal/joint_state", "gimbal/joint_state"),
+    ]
+    gimbal_teleop_remappings = namespaced_remappings + [
+        ("/gimbal/cmd_pan", "gimbal/teleop_cmd_pan"),
+        ("/gimbal/cmd_tilt", "gimbal/teleop_cmd_tilt"),
     ]
     navigation_client_command = [
         TextSubstitution(
@@ -124,6 +127,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument("manual_control_enabled", default_value="true"),
         DeclareLaunchArgument("gimbal_control_enabled", default_value="true"),
+        DeclareLaunchArgument("gimbal_mux_enabled", default_value="true"),
         DeclareLaunchArgument("visualization_enabled", default_value="true"),
         DeclareLaunchArgument("navigation_client_terminal", default_value="true"),
         DeclareLaunchArgument("swarm_member_enabled", default_value="false"),
@@ -194,6 +198,16 @@ def generate_launch_description():
             namespace=drone_namespace,
             output="screen",
             condition=IfCondition(gimbal_control_enabled),
+            parameters=shared_parameters,
+            remappings=gimbal_teleop_remappings,
+        ),
+        Node(
+            package="drone_control",
+            executable="gimbal_command_mux_node",
+            name="gimbal_command_mux",
+            namespace=drone_namespace,
+            output="screen",
+            condition=IfCondition(gimbal_mux_enabled),
             parameters=shared_parameters,
             remappings=namespaced_remappings,
         ),

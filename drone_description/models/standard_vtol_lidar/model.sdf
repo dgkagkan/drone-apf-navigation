@@ -176,7 +176,7 @@
         <pose>0 0 0 0 0 0</pose>
         <topic>gimbal_camera</topic>
         <gz_frame_id>gimbal_pitch_link</gz_frame_id>
-        <update_rate>10</update_rate>
+        <update_rate>60</update_rate>
         <always_on>1</always_on>
         <visualize>true</visualize>
         <camera>

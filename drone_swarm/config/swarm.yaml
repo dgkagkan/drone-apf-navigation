@@ -47,3 +47,15 @@ swarm_operator:
     takeoff_climb_speed_m_s: 2.0
     cruise_speed_m_s: 15.0
     use_fixed_wing: true
+
+swarm_gimbal_router:
+  ros__parameters:
+    command_rate_hz: 25.0
+    pan_rate_deg_s: 60.0
+    tilt_rate_deg_s: 45.0
+    pan_min_deg: -180.0
+    pan_max_deg: 180.0
+    tilt_min_deg: -90.0
+    tilt_max_deg: 90.0
+    home_tolerance_deg: 1.0
+    home_timeout_sec: 10.0

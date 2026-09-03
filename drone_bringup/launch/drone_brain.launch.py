@@ -27,6 +27,11 @@ def generate_launch_description():
     use_ground_truth = LaunchConfiguration("use_ground_truth")
     publish_vehicle_tf = LaunchConfiguration("publish_vehicle_tf")
     publish_robot_description = LaunchConfiguration("publish_robot_description")
+    mapping_enabled = LaunchConfiguration("mapping_enabled")
+    mapping_rate_hz = LaunchConfiguration("mapping_rate_hz")
+    mapping_max_range_m = LaunchConfiguration("mapping_max_range_m")
+    mapping_queue_size = LaunchConfiguration("mapping_queue_size")
+    lidar_points_topic = LaunchConfiguration("lidar_points_topic")
     config_file = LaunchConfiguration("config_file")
     loopback_config = PathJoinSubstitution([
         FindPackageShare("drone_bringup"), "config", "fastdds_loopback.xml"
@@ -98,6 +103,21 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument("publish_robot_description", default_value="true"),
         DeclareLaunchArgument(
+            "mapping_enabled",
+            default_value="true",
+            description=(
+                "Run the lightweight onboard LiDAR relay and publish "
+                "/swarm/<drone_id>/map_cloud. The PC owns global fusion."
+            ),
+        ),
+        DeclareLaunchArgument("mapping_rate_hz", default_value="5.0"),
+        DeclareLaunchArgument("mapping_max_range_m", default_value="300.0"),
+        DeclareLaunchArgument(
+            "mapping_queue_size",
+            default_value="5",
+            description="Small onboard mapping DDS queue; normally keep this 5-10.",
+        ),
+        DeclareLaunchArgument(
             "manual_control_enabled",
             default_value="false",
             description="Enable the remote /joy path (requires a full build).",
@@ -106,6 +126,11 @@ def generate_launch_description():
             "gimbal_control_enabled",
             default_value="false",
             description="Enable joystick gimbal control (requires a full build).",
+        ),
+        DeclareLaunchArgument(
+            "gimbal_mux_enabled",
+            default_value="false",
+            description="Enable the PC-side gimbal source mux (requires a full build).",
         ),
         DeclareLaunchArgument("visualization_enabled", default_value="true"),
         DeclareLaunchArgument(
@@ -132,6 +157,7 @@ def generate_launch_description():
                 "gimbal_control_enabled": LaunchConfiguration(
                     "gimbal_control_enabled"
                 ),
+                "gimbal_mux_enabled": LaunchConfiguration("gimbal_mux_enabled"),
                 "visualization_enabled": LaunchConfiguration("visualization_enabled"),
                 "navigation_client_terminal": "false",
                 "swarm_member_enabled": "true",
@@ -158,6 +184,35 @@ def generate_launch_description():
                     ["/", drone_id, "/ground_truth/odometry"], value_type=str
                 ),
                 "use_sim_time": ParameterValue(use_sim_time, value_type=bool),
+            }],
+        ),
+        Node(
+            package="drone_navigation",
+            executable="point_cloud_throttle_node",
+            namespace=drone_id,
+            name="swarm_map_cloud_throttle",
+            output="screen",
+            condition=IfCondition(mapping_enabled),
+            parameters=[{
+                "use_sim_time": ParameterValue(use_sim_time, value_type=bool),
+                "publish_rate": ParameterValue(mapping_rate_hz, value_type=float),
+                "input_topic": lidar_points_topic,
+                "output_topic": "mapping/filtered_points",
+                "secondary_output_topic": "",
+                "secondary_include_max_range_rays": True,
+                "drone_id": drone_id,
+                "mapping_frame": "map",
+                "map_cloud_topic": ParameterValue(
+                    ["/swarm/", drone_id, "/map_cloud"], value_type=str
+                ),
+                "mapping_tf_timeout_sec": 0.05,
+                "mapping_queue_size": ParameterValue(
+                    mapping_queue_size, value_type=int
+                ),
+                "min_valid_range": 0.2,
+                "max_valid_range": ParameterValue(
+                    mapping_max_range_m, value_type=float
+                ),
             }],
         ),
         Node(

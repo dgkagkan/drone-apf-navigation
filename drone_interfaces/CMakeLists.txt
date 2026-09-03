@@ -13,6 +13,7 @@ option(
 find_package(ament_cmake REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -22,6 +23,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MotionCommand.msg"
   "msg/RouteTarget.msg"
   "msg/SwarmDroneHeartbeat.msg"
+  "msg/SwarmMapCloud.msg"
   "msg/SwarmDroneState.msg"
   "msg/SwarmMissionCommand.msg"
   "msg/SwarmMissionFeedback.msg"
@@ -36,11 +38,12 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/RegisterSwarmDrone.srv"
   "srv/RemoveSwarmTarget.srv"
   "srv/SwarmCommand.srv"
+  "srv/SwarmGimbalCommand.srv"
   "action/Land.action"
   "action/NavigateTo.action"
   "action/Takeoff.action"
   "action/TransitionVtol.action"
-  DEPENDENCIES geometry_msgs std_msgs
+  DEPENDENCIES geometry_msgs sensor_msgs std_msgs
 )
 
 ament_export_dependencies(rosidl_default_runtime)

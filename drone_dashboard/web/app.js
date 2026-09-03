@@ -1,6 +1,8 @@
 "use strict";
 
 const colors = ["#ff6572", "#57df8c", "#62a9ff", "#ffbd52", "#bb77ff", "#49d8d0"];
+const DASHBOARD_RATE_HZ = 60;
+const DASHBOARD_INTERVAL_MS = 1000 / DASHBOARD_RATE_HZ;
 const canvas = document.getElementById("map");
 const context = canvas.getContext("2d");
 let state = null;
@@ -9,6 +11,8 @@ let dragging = false;
 let moved = false;
 let dragStart = null;
 let cameraIds = [];
+let gimbalTargetIds = [];
+let heldGimbal = null;
 let droneInteractionUntil = 0;
 const speedDrafts = new Map();
 const lidarRangeDrafts = new Map();
@@ -86,6 +90,7 @@ function render() {
   renderMetrics();
   renderTargets();
   renderDrones();
+  renderGimbalTargets();
   renderCameras();
   drawMap();
 }
@@ -207,6 +212,30 @@ function renderCameras() {
   grid.innerHTML = ids.length ? ids.map(id =>
     `<div class="camera"><img id="camera-${id}" alt="${id} camera"><span class="camera-label">${id}</span></div>`
   ).join("") : `<div class="camera-empty">Camera streams appear when drones connect</div>`;
+}
+
+function renderGimbalTargets() {
+  const select = document.getElementById("gimbal-target");
+  if (!select) return;
+  const ids = state.drones
+    .filter(drone => drone.registered && drone.connected && drone.has_gimbal &&
+      drone.operator_enabled && !drone.safety_excluded)
+    .map(drone => drone.drone_id)
+    .sort();
+  const current = select.value || "ALL";
+  if (JSON.stringify(ids) !== JSON.stringify(gimbalTargetIds)) {
+    gimbalTargetIds = ids;
+    select.innerHTML = `<option value="ALL">ALL</option>` +
+      ids.map(id => `<option value="${id}">${id}</option>`).join("");
+  }
+  select.value = ids.includes(current) || current === "ALL" ? current : "ALL";
+  const disabled = ids.length === 0;
+  document.querySelectorAll("[data-gimbal-command]").forEach(button => {
+    button.disabled = disabled;
+  });
+  document.getElementById("gimbal-status").textContent = disabled ?
+    "No connected registered drone reports gimbal capability." :
+    "Hold a direction to move the selected gimbal. Release to stop.";
 }
 
 function refreshCameras() {
@@ -372,6 +401,29 @@ function addCurrentTarget() {
   return api("/api/targets", targetPayload());
 }
 
+function gimbalTargetPayload() {
+  const target = document.getElementById("gimbal-target").value || "ALL";
+  return target === "ALL" ?
+    { target_mode: "all" } :
+    { target_mode: "drone", drone_id: target };
+}
+
+function sendGimbalCommand(command, pressed, target = gimbalTargetPayload()) {
+  return api("/api/gimbal-command", {
+    ...target,
+    command: command.toLowerCase(),
+    pressed,
+  });
+}
+
+function releaseGimbal() {
+  if (!heldGimbal) return;
+  const held = heldGimbal;
+  heldGimbal = null;
+  held.button.classList.remove("is-held");
+  sendGimbalCommand("STOP", false, held.target).catch(() => {});
+}
+
 const droneGrid = document.getElementById("drone-grid");
 droneGrid.addEventListener("pointerdown", () => {
   droneInteractionUntil = Date.now() + 1500;
@@ -391,6 +443,10 @@ droneGrid.addEventListener("input", event => {
 
 document.addEventListener("click", event => {
   const target = event.target;
+  if (target.dataset.gimbalCommand === "HOME") {
+    sendGimbalCommand("HOME", true).catch(() => {});
+    return;
+  }
   if (target.dataset.command) api("/api/swarm-command", { command: target.dataset.command }).catch(() => {});
   if (target.dataset.all) allDrones(target.dataset.all);
   if (target.dataset.droneArm) api("/api/swarm-command", { command: "arm", drone_id: target.dataset.droneArm }).catch(() => {});
@@ -420,6 +476,26 @@ document.addEventListener("click", event => {
   }
   if (target.dataset.removeTarget) api("/api/targets/remove", { target_id: Number(target.dataset.removeTarget) }).catch(() => {});
 });
+
+document.addEventListener("pointerdown", event => {
+  const button = event.target.closest?.("[data-gimbal-command]");
+  if (!button || button.dataset.gimbalCommand === "HOME" || button.disabled) return;
+  event.preventDefault();
+  releaseGimbal();
+  heldGimbal = {
+    button,
+    target: gimbalTargetPayload(),
+  };
+  button.classList.add("is-held");
+  button.setPointerCapture?.(event.pointerId);
+  sendGimbalCommand(button.dataset.gimbalCommand, true, heldGimbal.target).catch(() => {});
+});
+
+document.addEventListener("pointerup", event => {
+  releaseGimbal();
+});
+document.addEventListener("pointercancel", () => releaseGimbal());
+window.addEventListener("blur", () => releaseGimbal());
 
 document.getElementById("add-target").addEventListener("click", () => {
   addCurrentTarget().catch(() => {});
@@ -461,5 +537,5 @@ window.addEventListener("resize", resizeCanvas);
 
 resizeCanvas();
 refresh();
-setInterval(refresh, 500);
-setInterval(refreshCameras, 250);
+setInterval(refresh, DASHBOARD_INTERVAL_MS);
+setInterval(refreshCameras, DASHBOARD_INTERVAL_MS);

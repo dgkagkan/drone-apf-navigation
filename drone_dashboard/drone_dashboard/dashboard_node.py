@@ -21,6 +21,7 @@ from drone_interfaces.srv import (
     AddSwarmTarget,
     RemoveSwarmTarget,
     SwarmCommand,
+    SwarmGimbalCommand,
 )
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path as NavigationPath
@@ -78,8 +79,14 @@ class DashboardNode(Node):
             self.declare_parameter("takeoff_climb_speed_m_s", 2.0).value
         )
         self._jpeg_quality = int(self.declare_parameter("jpeg_quality", 72).value)
+        self._dashboard_rate_hz = max(
+            1.0, float(self.declare_parameter("dashboard_rate_hz", 60.0).value)
+        )
         self._camera_rate_hz = max(
-            0.5, float(self.declare_parameter("camera_rate_hz", 5.0).value)
+            0.5,
+            float(
+                self.declare_parameter("camera_rate_hz", self._dashboard_rate_hz).value
+            ),
         )
         self._web_root = Path(get_package_share_directory("drone_dashboard")) / "web"
         self._callback_group = ReentrantCallbackGroup()
@@ -114,8 +121,15 @@ class DashboardNode(Node):
         self._command_client = self.create_client(
             SwarmCommand, "/swarm/command", callback_group=self._callback_group
         )
+        self._gimbal_command_client = self.create_client(
+            SwarmGimbalCommand,
+            "/swarm/gimbal_command",
+            callback_group=self._callback_group,
+        )
         self._request_timer = self.create_timer(
-            0.05, self._process_requests, callback_group=self._callback_group
+            1.0 / self._dashboard_rate_hz,
+            self._process_requests,
+            callback_group=self._callback_group,
         )
 
         handler = self._make_handler()
@@ -355,6 +369,8 @@ class DashboardNode(Node):
             self._set_drone_speed(command)
         elif command.kind == "set_drone_lidar_range":
             self._set_drone_lidar_range(command)
+        elif command.kind == "gimbal_command":
+            self._gimbal_command(command)
         else:
             self._finish(command, False, "unknown dashboard command")
 
@@ -448,6 +464,41 @@ class DashboardNode(Node):
             lambda response: (response.accepted, response.message),
         )
 
+    def _gimbal_command(self, command: HttpCommand):
+        if not self._gimbal_command_client.service_is_ready():
+            self._finish(command, False, "/swarm/gimbal_command is unavailable")
+            return
+        command_names = {
+            "up": SwarmGimbalCommand.Request.COMMAND_UP,
+            "down": SwarmGimbalCommand.Request.COMMAND_DOWN,
+            "left": SwarmGimbalCommand.Request.COMMAND_LEFT,
+            "right": SwarmGimbalCommand.Request.COMMAND_RIGHT,
+            "home": SwarmGimbalCommand.Request.COMMAND_HOME,
+            "stop": SwarmGimbalCommand.Request.COMMAND_STOP,
+        }
+        target_names = {
+            "all": SwarmGimbalCommand.Request.TARGET_ALL,
+            "drone": SwarmGimbalCommand.Request.TARGET_DRONE,
+        }
+        command_name = str(command.payload.get("command", "")).lower()
+        target_name = str(command.payload.get("target_mode", "all")).lower()
+        if command_name not in command_names:
+            self._finish(command, False, f"unknown gimbal command '{command_name}'")
+            return
+        if target_name not in target_names:
+            self._finish(command, False, f"unknown gimbal target '{target_name}'")
+            return
+        request = SwarmGimbalCommand.Request()
+        request.target_mode = target_names[target_name]
+        request.drone_id = str(command.payload.get("drone_id", ""))
+        request.command = command_names[command_name]
+        request.pressed = bool(command.payload.get("pressed", False))
+        self._complete_service(
+            command,
+            self._gimbal_command_client.call_async(request),
+            lambda response: (response.accepted, response.message),
+        )
+
     def _complete_service(self, command: HttpCommand, future, parser: Callable):
         def completed(result_future):
             try:
@@ -520,6 +571,7 @@ class DashboardNode(Node):
             "armed": drone.armed,
             "offboard": drone.offboard,
             "has_lidar": drone.has_lidar,
+            "has_gimbal": drone.has_gimbal,
             "supports_fixed_wing": drone.supports_fixed_wing,
             "supports_vtol": drone.supports_vtol,
             "has_speed_override": drone.has_speed_override,
@@ -587,6 +639,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "/api/swarm-command": "swarm_command",
             "/api/drone/speed": "set_drone_speed",
             "/api/drone/lidar-range": "set_drone_lidar_range",
+            "/api/gimbal-command": "gimbal_command",
         }
         kind = routes.get(path)
         if kind is None:

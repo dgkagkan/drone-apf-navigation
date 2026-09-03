@@ -340,15 +340,42 @@ Visualization Manager:
       Use Fixed Frame: true
       Value: true
     - Alpha: 0.8
-      Class: octomap_rviz_plugins/OccupancyGrid
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/PointCloud2
+      Color: 255; 170; 40
+      Color Transformer: FlatColor
+      Decay Time: 0
       Enabled: true
       Name: Persistent global OctoMap
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.5
+      Style: Boxes
       Topic:
         Depth: 1
         Durability Policy: Transient Local
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /swarm/octomap_binary
+        Value: /swarm/octomap_point_cloud_centers
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Dynamic mapping contributions
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /swarm/mapping_debug
       Value: true
     - Alpha: 0.65
       Buffer Length: 1

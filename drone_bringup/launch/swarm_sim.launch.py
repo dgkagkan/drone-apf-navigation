@@ -121,21 +121,34 @@ def _launch_setup(context):
         "1", "true"
     )
     mapping_rate_hz = float(LaunchConfiguration("mapping_rate_hz").perform(context))
+    octomap_publish_rate_hz = float(
+        LaunchConfiguration("octomap_publish_rate_hz").perform(context)
+    )
+    mapping_queue_size = int(LaunchConfiguration("mapping_queue_size").perform(context))
     mapping_resolution_m = float(
         LaunchConfiguration("mapping_resolution_m").perform(context)
     )
     mapping_max_range_m = float(
         LaunchConfiguration("mapping_max_range_m").perform(context)
     )
+    octomap_max_range_m = float(
+        LaunchConfiguration("octomap_max_range_m").perform(context)
+    )
     models_dir = Path(LaunchConfiguration("models_dir").perform(context)).expanduser().resolve()
     work_root = Path(LaunchConfiguration("work_root").perform(context)).expanduser().resolve()
 
     if mapping_rate_hz <= 0.0:
         raise RuntimeError("mapping_rate_hz must be greater than zero")
+    if octomap_publish_rate_hz <= 0.0:
+        raise RuntimeError("octomap_publish_rate_hz must be greater than zero")
+    if mapping_queue_size < 1:
+        raise RuntimeError("mapping_queue_size must be greater than zero")
     if mapping_resolution_m <= 0.0:
         raise RuntimeError("mapping_resolution_m must be greater than zero")
     if mapping_max_range_m <= 0.0:
         raise RuntimeError("mapping_max_range_m must be greater than zero")
+    if octomap_max_range_m <= 0.0:
+        raise RuntimeError("octomap_max_range_m must be greater than zero")
     required_paths = (
         px4_dir / "build/px4_sitl_default/bin/px4",
         px4_dir / "build/px4_sitl_default/rootfs/gz_env.sh",
@@ -238,6 +251,7 @@ def _launch_setup(context):
                         "map_origin_north_m": str(north),
                         "map_origin_up_m": str(up),
                         "use_local_joy": "false",
+                        "gimbal_mux_enabled": "true",
                         "visualization_enabled": "true",
                         "navigation_client_terminal": "false",
                         "swarm_member_enabled": "true",
@@ -290,42 +304,46 @@ def _launch_setup(context):
                     "publish_rate": mapping_rate_hz,
                     "input_topic": f"/{drone_id}/scan_3d/points",
                     "output_topic": f"/{drone_id}/scan_3d/filtered_points",
-                    "secondary_output_topic": "/swarm/scan_3d/filtered_points",
+                    "drone_id": drone_id,
+                    "mapping_frame": "map",
+                    "map_cloud_topic": f"/swarm/{drone_id}/map_cloud",
+                    "mapping_tf_timeout_sec": 0.05,
+                    "mapping_queue_size": mapping_queue_size,
+                    # Keep the max-range rays for software-side clearing, but
+                    # do not publish the old anonymous aggregate topic.
+                    "secondary_output_topic": "",
                     "secondary_include_max_range_rays": True,
                     "min_valid_range": 0.2,
                     "max_valid_range": mapping_max_range_m,
                 }],
             ))
 
-        # A ROS topic can have multiple publishers. Each cloud keeps its own
-        # sensor frame, so octomap_server transforms all three into `map`.
         mapping_actions.append(Node(
-            package="octomap_server",
-            executable="octomap_server_node",
-            name="swarm_octomap_server",
+            package="drone_swarm",
+            executable="swarm_global_map_server",
+            name="swarm_global_map_server",
             output="screen",
-            remappings=[
-                ("cloud_in", "/swarm/scan_3d/filtered_points"),
-                ("octomap_point_cloud_centers", "/swarm/octomap_point_cloud_centers"),
-                ("octomap_binary", "/swarm/octomap_binary"),
-                ("octomap_full", "/swarm/octomap_full"),
-            ],
             parameters=[{
                 "use_sim_time": True,
-                "frame_id": "map",
-                "base_frame_id": "map",
+                "map_frame": "map",
+                "mapping_topic_prefix": "/swarm",
                 "resolution": mapping_resolution_m,
-                "sensor_model.max_range": mapping_max_range_m,
-                "sensor_model.hit": 0.75,
-                "sensor_model.miss": 0.45,
-                "sensor_model.min": 0.12,
-                "sensor_model.max": 0.97,
-                "latch": True,
-                "compress_map": True,
-                "filter_speckles": True,
-                "filter_ground_plane": False,
-                "occupancy_min_z": -1.0,
-                "occupancy_max_z": 60.0,
+                "hit_probability": 0.75,
+                "miss_probability": 0.45,
+                "min_probability": 0.12,
+                "max_probability": 0.97,
+                "occupied_probability": 0.5,
+                "mapping_queue_size": mapping_queue_size,
+                "publish_rate_hz": mapping_rate_hz,
+                "octomap_publish_rate_hz": octomap_publish_rate_hz,
+                "max_ray_length_m": octomap_max_range_m,
+                # The worker keeps only the newest cloud per drone, matching
+                # the old live octomap behavior without rejecting delayed sim
+                # timestamps as stale.
+                "max_cloud_age_sec": 0.0,
+                "remove_submap_on_disconnect": False,
+                "retain_submap_on_disconnect": True,
+                "submap_timeout_sec": 30.0,
             }],
         ))
         actions.append(TimerAction(period=11.0, actions=mapping_actions))
@@ -420,8 +438,19 @@ def generate_launch_description():
         DeclareLaunchArgument("use_rviz", default_value="true"),
         DeclareLaunchArgument("use_mapping", default_value="true"),
         DeclareLaunchArgument("mapping_rate_hz", default_value="5.0"),
+        DeclareLaunchArgument(
+            "octomap_publish_rate_hz",
+            default_value="1.0",
+            description="Rate for serialized /octomap_binary and /octomap_full messages.",
+        ),
+        DeclareLaunchArgument(
+            "mapping_queue_size",
+            default_value="5",
+            description="Small per-drone mapping DDS queue; normally keep this 5-10.",
+        ),
         DeclareLaunchArgument("mapping_resolution_m", default_value="0.5"),
         DeclareLaunchArgument("mapping_max_range_m", default_value="300.0"),
+        DeclareLaunchArgument("octomap_max_range_m", default_value="300.0"),
         DeclareLaunchArgument("models_dir", default_value="/tmp/drone_swarm_gz_models"),
         DeclareLaunchArgument("work_root", default_value="/tmp/drone_swarm_px4"),
         DeclareLaunchArgument("drone_1_east_m", default_value="0.0"),

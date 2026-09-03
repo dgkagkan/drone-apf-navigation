@@ -10,9 +10,15 @@
 #include <string>
 #include <vector>
 
+#include <drone_interfaces/msg/swarm_map_cloud.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/point_field.hpp>
+#include <tf2/time.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 
 using std::placeholders::_1;
 
@@ -20,7 +26,7 @@ class PointCloudThrottle : public rclcpp::Node
 {
 public:
   PointCloudThrottle()
-  : Node("point_cloud_throttle")
+  : Node("point_cloud_throttle"), tf_buffer_(get_clock()), tf_listener_(tf_buffer_)
   {
     const double publish_rate = std::clamp(
       declare_parameter<double>("publish_rate", 1.0), 0.1, 10.0);
@@ -29,6 +35,13 @@ public:
       declare_parameter<std::string>("output_topic", "/scan_3d/filtered_points");
     secondary_output_topic_ =
       declare_parameter<std::string>("secondary_output_topic", "");
+    drone_id_ = declare_parameter<std::string>("drone_id", "");
+    mapping_frame_ = declare_parameter<std::string>("mapping_frame", "");
+    map_cloud_topic_ = declare_parameter<std::string>("map_cloud_topic", "");
+    mapping_tf_timeout_sec_ = std::max(
+      0.0, declare_parameter<double>("mapping_tf_timeout_sec", 0.05));
+    mapping_queue_size_ = std::clamp(
+      static_cast<int>(declare_parameter<int>("mapping_queue_size", 5)), 1, 20);
     secondary_include_max_range_rays_ = declare_parameter<bool>(
       "secondary_include_max_range_rays", false);
     min_valid_range_ = std::max(
@@ -44,16 +57,28 @@ public:
       secondary_cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
         secondary_output_topic_, qos);
     }
+    if (!map_cloud_topic_.empty()) {
+      map_cloud_pub_ = create_publisher<drone_interfaces::msg::SwarmMapCloud>(
+        map_cloud_topic_, rclcpp::SensorDataQoS().keep_last(mapping_queue_size_));
+    }
     timer_ = create_wall_timer(
       std::chrono::duration<double>(1.0 / publish_rate),
       std::bind(&PointCloudThrottle::publishLatest, this));
 
     RCLCPP_INFO(
-      get_logger(), "PointCloud filter: %s -> %s%s%s at %.1fHz, valid range %.1f-%.1fm",
+      get_logger(), "PointCloud filter: %s -> %s%s%s%s at %.1fHz, valid range %.1f-%.1fm",
       input_topic_.c_str(), output_topic_.c_str(),
       secondary_output_topic_.empty() ? "" : " and ",
-      secondary_output_topic_.c_str(), publish_rate,
+      secondary_output_topic_.c_str(),
+      map_cloud_topic_.empty() ? "" : " plus timestamped map cloud",
+      publish_rate,
       min_valid_range_, max_valid_range_);
+    if (!map_cloud_topic_.empty() && (drone_id_.empty() || mapping_frame_.empty())) {
+      RCLCPP_WARN(
+        get_logger(),
+        "map_cloud_topic is set but drone_id or mapping_frame is empty; map clouds are disabled");
+      map_cloud_pub_.reset();
+    }
   }
 
 private:
@@ -86,6 +111,71 @@ private:
       secondary_cloud_pub_->publish(
         secondary_include_max_range_rays_ ? mapping_cloud : filtered);
     }
+    if (map_cloud_pub_) {
+      publishMapCloud(
+        *cloud,
+        secondary_include_max_range_rays_ ? mapping_cloud : filtered);
+    }
+  }
+
+  void publishMapCloud(
+    const sensor_msgs::msg::PointCloud2 & input,
+    const sensor_msgs::msg::PointCloud2 & mapping_cloud)
+  {
+    if (input.header.stamp.sec == 0 && input.header.stamp.nanosec == 0) {
+      ++mapping_dropped_no_tf_;
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "Dropping map cloud from %s because it has no timestamp",
+        drone_id_.c_str());
+      return;
+    }
+
+    geometry_msgs::msg::TransformStamped transform;
+    try {
+      transform = tf_buffer_.lookupTransform(
+        mapping_frame_, input.header.frame_id, rclcpp::Time(input.header.stamp),
+        tf2::durationFromSec(mapping_tf_timeout_sec_));
+    } catch (const tf2::TransformException & exception) {
+      ++mapping_dropped_no_tf_;
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "Dropping map cloud from %s: TF %s <- %s at cloud timestamp unavailable "
+        "(%s); dropped=%zu",
+        drone_id_.c_str(), mapping_frame_.c_str(), input.header.frame_id.c_str(),
+        exception.what(), mapping_dropped_no_tf_);
+      return;
+    }
+
+    sensor_msgs::msg::PointCloud2 transformed;
+    try {
+      tf2::doTransform(mapping_cloud, transformed, transform);
+    } catch (const tf2::TransformException & exception) {
+      ++mapping_dropped_no_tf_;
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "Dropping map cloud from %s after TF conversion failed: %s",
+        drone_id_.c_str(), exception.what());
+      return;
+    }
+    transformed.header.stamp = input.header.stamp;
+    transformed.header.frame_id = mapping_frame_;
+
+    drone_interfaces::msg::SwarmMapCloud message;
+    message.header = transformed.header;
+    message.drone_id = drone_id_;
+    message.cloud = std::move(transformed);
+    message.sensor_origin.x = transform.transform.translation.x;
+    message.sensor_origin.y = transform.transform.translation.y;
+    message.sensor_origin.z = transform.transform.translation.z;
+    message.max_range_m = max_valid_range_;
+    map_cloud_pub_->publish(std::move(message));
+    ++mapping_transformed_;
+    RCLCPP_INFO_THROTTLE(
+      get_logger(), *get_clock(), 5000,
+      "Mapping relay %s: transformed=%zu dropped_no_tf=%zu queue=%d",
+      drone_id_.c_str(), mapping_transformed_, mapping_dropped_no_tf_,
+      mapping_queue_size_);
   }
 
   bool filterCloud(
@@ -216,14 +306,24 @@ private:
   std::string input_topic_;
   std::string output_topic_;
   std::string secondary_output_topic_;
+  std::string drone_id_;
+  std::string mapping_frame_;
+  std::string map_cloud_topic_;
   bool secondary_include_max_range_rays_{false};
   double min_valid_range_{0.2};
   double max_valid_range_{200.0};
+  double mapping_tf_timeout_sec_{0.05};
+  int mapping_queue_size_{5};
+  std::size_t mapping_dropped_no_tf_{0};
+  std::size_t mapping_transformed_{0};
   std::mutex cloud_mutex_;
   sensor_msgs::msg::PointCloud2::SharedPtr latest_cloud_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr secondary_cloud_pub_;
+  rclcpp::Publisher<drone_interfaces::msg::SwarmMapCloud>::SharedPtr map_cloud_pub_;
+  tf2_ros::Buffer tf_buffer_;
+  tf2_ros::TransformListener tf_listener_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

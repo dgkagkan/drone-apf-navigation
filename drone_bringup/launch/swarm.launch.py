@@ -26,6 +26,7 @@ def generate_launch_description():
     open_dashboard = LaunchConfiguration("open_dashboard")
     dashboard_host = LaunchConfiguration("dashboard_host")
     dashboard_port = LaunchConfiguration("dashboard_port")
+    dashboard_rate_hz = LaunchConfiguration("dashboard_rate_hz")
     default_config = PathJoinSubstitution([
         FindPackageShare("drone_swarm"), "config", "swarm.yaml"
     ])
@@ -44,10 +45,18 @@ def generate_launch_description():
         DeclareLaunchArgument("open_dashboard", default_value="true"),
         DeclareLaunchArgument("dashboard_host", default_value="127.0.0.1"),
         DeclareLaunchArgument("dashboard_port", default_value="8765"),
+        DeclareLaunchArgument("dashboard_rate_hz", default_value="60.0"),
         Node(
             package="drone_swarm",
             executable="swarm_coordinator_node",
             name="swarm_coordinator",
+            output="screen",
+            parameters=[config_file],
+        ),
+        Node(
+            package="drone_swarm",
+            executable="swarm_gimbal_router_node",
+            name="swarm_gimbal_router",
             output="screen",
             parameters=[config_file],
         ),
@@ -65,6 +74,8 @@ def generate_launch_description():
             parameters=[{
                 "host": dashboard_host,
                 "port": ParameterValue(dashboard_port, value_type=int),
+                "dashboard_rate_hz": ParameterValue(dashboard_rate_hz, value_type=float),
+                "camera_rate_hz": ParameterValue(dashboard_rate_hz, value_type=float),
             }],
             condition=IfCondition(use_dashboard),
         ),

@@ -81,6 +81,22 @@
         <div><p class="eyebrow">OPTICS</p><h2>Live cameras</h2></div>
         <p>PC-local compressed preview</p>
       </div>
+      <div class="gimbal-control-panel">
+        <div class="gimbal-target">
+          <label for="gimbal-target">TARGET</label>
+          <select id="gimbal-target">
+            <option value="ALL">ALL</option>
+          </select>
+        </div>
+        <div class="gimbal-pad" role="group" aria-label="Gimbal D-pad controls">
+          <button class="button gimbal-button gimbal-up" data-gimbal-command="UP" aria-label="Tilt camera up" title="Tilt camera up">↑</button>
+          <button class="button gimbal-button gimbal-left" data-gimbal-command="LEFT" aria-label="Pan camera left" title="Pan camera left">←</button>
+          <button class="button primary gimbal-button gimbal-home" data-gimbal-command="HOME" aria-label="Home gimbal" title="Home gimbal">⌂</button>
+          <button class="button gimbal-button gimbal-right" data-gimbal-command="RIGHT" aria-label="Pan camera right" title="Pan camera right">→</button>
+          <button class="button gimbal-button gimbal-down" data-gimbal-command="DOWN" aria-label="Tilt camera down" title="Tilt camera down">↓</button>
+        </div>
+        <p id="gimbal-status">Hold a direction to move the selected gimbal. Release to stop.</p>
+      </div>
       <div id="camera-grid" class="camera-grid"></div>
     </section>
   </main>

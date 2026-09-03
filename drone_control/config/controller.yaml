@@ -21,6 +21,12 @@ gimbal_control:
     tilt_max_deg: 90.0
     joy_timeout: 0.5
 
+gimbal_command_mux:
+  ros__parameters:
+    publish_rate_hz: 50.0
+    swarm_command_timeout_sec: 0.75
+    stop_hold_sec: 0.75
+
 px4_gateway:
   ros__parameters:
     command_timeout_s: 0.5
@@ -39,6 +45,7 @@ swarm_member:
     state_timeout_sec: 1.0
     registration_refresh_sec: 2.0
     heartbeat_period_sec: 0.5
+    has_gimbal: true
     battery.low_pct: 40.0
     battery.critical_pct: 25.0
     battery.emergency_pct: 15.0

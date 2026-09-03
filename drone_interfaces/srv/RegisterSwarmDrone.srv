@@ -6,6 +6,7 @@ string navigate_action
 string arm_service
 string takeoff_action
 bool has_lidar
+bool has_gimbal
 bool supports_fixed_wing
 bool supports_vtol
 ---

@@ -197,6 +197,7 @@ private:
     bool lidar_ready {false};
     bool operator_enabled {true};
     bool has_lidar {false};
+    bool has_gimbal {true};
     bool supports_fixed_wing {false};
     bool supports_vtol {false};
     bool has_speed_override {false};
@@ -415,6 +416,7 @@ private:
       drone.takeoff_action = request->takeoff_action.empty() ?
         drone_namespace + "/takeoff" : request->takeoff_action;
       drone.has_lidar = request->has_lidar;
+      drone.has_gimbal = request->has_gimbal;
       drone.supports_fixed_wing = request->supports_fixed_wing;
       drone.supports_vtol = request->supports_vtol;
       drone.last_heartbeat = current_time;
@@ -1941,6 +1943,7 @@ private:
         drone_state.armed = drone->state.armed;
         drone_state.offboard = drone->state.offboard;
         drone_state.has_lidar = drone->has_lidar;
+        drone_state.has_gimbal = drone->has_gimbal;
         drone_state.supports_fixed_wing = drone->supports_fixed_wing;
         drone_state.supports_vtol = drone->supports_vtol;
         drone_state.has_speed_override = drone->has_speed_override;

@@ -18,6 +18,9 @@ route_executor -> /swarm/mission_feedback -> swarm_coordinator
 /fmu/out/* (including BatteryStatus) -> px4_gateway -> /vehicle/state
     -> onboard swarm_member -> /swarm/drone_heartbeat -> swarm_coordinator
     -> /swarm/state -> dashboard
+
+raw LiDAR -> point_cloud_throttle (per drone, PC or onboard)
+    -> /swarm/<drone_id>/map_cloud -> swarm_global_map_server -> global map/RViz
 ```
 
 `lidar_processor` keeps the available horizontal LiDAR field of view and
@@ -34,15 +37,27 @@ Sector filtering is configured with `sector_margin_min_deg`,
 The `/apf/obstacles_used` and `/apf/obstacles_sector_ignored` clouds show which
 points passed or failed the angular filter.
 
-For swarm visualization, every drone publishes a throttled mapping cloud to
-`/swarm/scan_3d/filtered_points`. The shared `octomap_server` ray-integrates
-those observations into a persistent global occupancy map. Occupied cells stay
-visible after a drone leaves; they are cleared only when a later sensor ray
-observes the same space as free. Max-range rays are included only in the mapping
-copy of the cloud, so they can clear stale occupancy without becoming APF
-obstacles. RViz displays the resulting
-`/swarm/octomap_point_cloud_centers` as `Persistent global OctoMap`; the three
-temporary per-drone LiDAR displays are disabled by default.
+For swarm visualization, each registered LiDAR drone publishes a typed mapping
+cloud on `/swarm/<drone_id>/map_cloud`. The existing throttle node transforms
+the cloud into `map` using TF at the scan timestamp and includes the LiDAR
+origin plus the configured maximum range. Its existing per-drone filtered cloud
+continues to feed APF unchanged. Max-range rays are kept only in the mapping
+message so they clear free space without becoming APF obstacles.
+
+`swarm_global_map_server` subscribes to `/swarm/state` and creates/removes
+mapping subscriptions dynamically. It maintains independent bounded evidence
+for every drone and an incremental global evidence sum. Occupied observations,
+free-space rays, conflicting observations, and drone disconnects therefore
+remain attributable to the source drone. A retained contribution can be
+removed after `submap_timeout_sec`, or immediately with
+`remove_submap_on_disconnect`.
+
+The fused occupied centers are published on
+`/swarm/octomap_point_cloud_centers` and the binary/full OctoMap messages on
+`/swarm/octomap_binary` and `/swarm/octomap_full`. RViz displays the centers as
+`Persistent global OctoMap`. Per-drone occupied contributions are available on
+`/swarm/mapping/<drone_id>/occupied_voxels`; these topics are created as drones
+join, so no drone IDs are hardcoded in the mapper.
 
 ## Packages
 
@@ -52,7 +67,8 @@ temporary per-drone LiDAR displays are disabled by default.
 - `drone_navigation`: LiDAR filtering, command arbitration, shared 3D APF,
   goal validation/action handling, and passive RViz visualization.
 - `drone_swarm`: buffered target submission, dynamic healthy-drone snapshots,
-  multi-drone route optimization, and asynchronous per-drone route dispatch.
+  multi-drone route optimization, asynchronous per-drone route dispatch, and
+  dynamic per-drone global map fusion.
 - `drone_dashboard`: PC-local HTTP control panel, mission map, fleet state,
   APF/path overlays, and compressed camera previews.
 - `drone_bringup`: launch composition and simulation configuration.
@@ -87,6 +103,12 @@ temporary per-drone LiDAR displays are disabled by default.
 - `automated_mission_node` owns only the automated mission state machine and
   Optuna telemetry. It does not publish PX4 messages or calculate APF forces.
 - `gimbal_control_node` owns the simulated camera pan and tilt targets.
+- `point_cloud_throttle_node` owns only the low-rate mapping relay. When
+  `mapping_enabled:=true` on `drone_brain.launch.py`, it can run on the
+  onboard computer; it does not build an OctoMap or touch PX4.
+- `swarm_global_map_server` is PC-only. It discovers registered/connected
+  LiDAR drones from `/swarm/state`, subscribes to their typed map clouds, and
+  owns all global mapping evidence and removal policy.
 
 ## Launch Files
 
