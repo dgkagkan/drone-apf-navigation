@@ -322,7 +322,9 @@ function drawDrone(drone) {
   const p = worldToScreen(drone.position);
   const color = drone.connected && drone.operator_enabled && !drone.safety_excluded ?
     droneColor(drone.drone_id) : "#59636a";
-  context.save(); context.translate(p.x, p.y); context.fillStyle = color; context.strokeStyle = "#071014"; context.lineWidth = 2;
+  const heading = drone.heading_valid && Number.isFinite(drone.heading_ned_rad) ?
+    drone.heading_ned_rad : 0;
+  context.save(); context.translate(p.x, p.y); context.rotate(heading); context.fillStyle = color; context.strokeStyle = "#071014"; context.lineWidth = 2;
   context.beginPath(); context.moveTo(0, -11); context.lineTo(9, 9); context.lineTo(0, 5); context.lineTo(-9, 9); context.closePath(); context.fill(); context.stroke(); context.restore();
   const speed = state.motion[drone.drone_id]?.speed_m_s;
   const speedLabel = speed == null ? "—" : `${speed.toFixed(1)}m/s`;

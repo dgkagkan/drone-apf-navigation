@@ -43,6 +43,8 @@ def test_drone_state_exposes_battery_safety_to_dashboard():
     drone.battery_power_w = 220.0
     drone.battery_capacity_wh = 250.0
     drone.battery_remaining_energy_wh = 61.25
+    drone.heading_valid = True
+    drone.heading_ned_rad = 1.25
     drone.battery_state = SwarmDroneState.BATTERY_STATE_RETURN_HOME
     drone.safety_excluded = True
     drone.return_home_active = True
@@ -54,6 +56,8 @@ def test_drone_state_exposes_battery_safety_to_dashboard():
     assert result["battery_power_w"] == 220.0
     assert result["battery_capacity_wh"] == 250.0
     assert result["battery_remaining_energy_wh"] == 61.25
+    assert result["heading_valid"] is True
+    assert result["heading_ned_rad"] == 1.25
     assert result["battery_state"] == SwarmDroneState.BATTERY_STATE_RETURN_HOME
     assert result["safety_excluded"] is True
     assert result["return_home_active"] is True

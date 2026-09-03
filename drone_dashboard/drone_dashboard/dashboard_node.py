@@ -536,6 +536,8 @@ class DashboardNode(Node):
             "return_home_active": bool(drone.return_home_active),
             "last_update_age_sec": cls._finite(drone.last_update_age_sec),
             "position": cls._point_dict(drone.position),
+            "heading_valid": bool(drone.heading_valid),
+            "heading_ned_rad": cls._finite(drone.heading_ned_rad),
         }
 
     def destroy_node(self):

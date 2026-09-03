@@ -34,6 +34,16 @@ Sector filtering is configured with `sector_margin_min_deg`,
 The `/apf/obstacles_used` and `/apf/obstacles_sector_ignored` clouds show which
 points passed or failed the angular filter.
 
+For swarm visualization, every drone publishes a throttled mapping cloud to
+`/swarm/scan_3d/filtered_points`. The shared `octomap_server` ray-integrates
+those observations into a persistent global occupancy map. Occupied cells stay
+visible after a drone leaves; they are cleared only when a later sensor ray
+observes the same space as free. Max-range rays are included only in the mapping
+copy of the cloud, so they can clear stale occupancy without becoming APF
+obstacles. RViz displays the resulting
+`/swarm/octomap_point_cloud_centers` as `Persistent global OctoMap`; the three
+temporary per-drone LiDAR displays are disabled by default.
+
 ## Packages
 
 - `drone_interfaces`: shared messages, services, and actions.
@@ -209,7 +219,9 @@ every route executor filters it by `drone_id`, and the selected drone updates it
 local navigation command without restarting the route. `AUTO` clears the
 override and returns to each route target's stored speed. Drone cards and map
 labels show the measured 3D speed from the namespaced `VehicleState` velocity.
-The dashboard never publishes a direct PX4 velocity command.
+Each map icon also uses the PX4 body heading carried through
+`VehicleState -> coordinator -> SwarmState`, so its nose points where the drone
+is facing. The dashboard never publishes a direct PX4 velocity command.
 
 `HOME ALL`, per-drone `HOME`, per-drone `LAND`, and per-drone `OFF` carry an
 explicit `target_drone_ids` list. Each route executor ignores commands that do

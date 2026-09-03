@@ -35,3 +35,5 @@ bool safety_excluded
 bool return_home_active
 float64 last_update_age_sec
 geometry_msgs/Point position
+bool heading_valid
+float64 heading_ned_rad

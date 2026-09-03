@@ -1959,6 +1959,10 @@ private:
           std::max(0.0, (current_time - drone->last_update).seconds()) :
           std::numeric_limits<double>::infinity();
         drone_state.position = drone->state.position_enu;
+        drone_state.heading_valid = drone->state.attitude_valid &&
+          std::isfinite(drone->state.heading_ned_rad);
+        drone_state.heading_ned_rad = drone_state.heading_valid ?
+          drone->state.heading_ned_rad : 0.0;
         state.drones.push_back(std::move(drone_state));
       }
       appendRouteState(current_routes_, state.assignments);

@@ -29,6 +29,8 @@ public:
       declare_parameter<std::string>("output_topic", "/scan_3d/filtered_points");
     secondary_output_topic_ =
       declare_parameter<std::string>("secondary_output_topic", "");
+    secondary_include_max_range_rays_ = declare_parameter<bool>(
+      "secondary_include_max_range_rays", false);
     min_valid_range_ = std::max(
       0.0, declare_parameter<double>("min_valid_range", 0.2));
     max_valid_range_ = std::max(
@@ -71,15 +73,25 @@ private:
     if (!cloud) return;
 
     sensor_msgs::msg::PointCloud2 filtered;
-    if (!filterCloud(*cloud, filtered)) return;
+    sensor_msgs::msg::PointCloud2 mapping_cloud;
+    if (!filterCloud(
+        *cloud, filtered,
+        secondary_include_max_range_rays_ ? &mapping_cloud : nullptr))
+    {
+      return;
+    }
 
     cloud_pub_->publish(filtered);
-    if (secondary_cloud_pub_) secondary_cloud_pub_->publish(filtered);
+    if (secondary_cloud_pub_) {
+      secondary_cloud_pub_->publish(
+        secondary_include_max_range_rays_ ? mapping_cloud : filtered);
+    }
   }
 
   bool filterCloud(
     const sensor_msgs::msg::PointCloud2 & input,
-    sensor_msgs::msg::PointCloud2 & output)
+    sensor_msgs::msg::PointCloud2 & output,
+    sensor_msgs::msg::PointCloud2 * mapping_output)
   {
     if (input.is_bigendian) {
       RCLCPP_WARN_ONCE(get_logger(), "Big-endian PointCloud2 is not supported");
@@ -100,6 +112,10 @@ private:
     output.row_step = 0;
     output.data.clear();
     output.data.reserve(input.width * input.height * input.point_step);
+    if (mapping_output) {
+      *mapping_output = output;
+      mapping_output->data.reserve(input.width * input.height * input.point_step);
+    }
 
     const double min_range_squared = min_valid_range_ * min_valid_range_;
     const double max_range_squared = max_valid_range_ * max_valid_range_;
@@ -126,20 +142,38 @@ private:
         }
 
         const double range_squared = x * x + y * y + z * z;
-        if (!std::isfinite(range_squared) || range_squared < min_range_squared ||
-          range_squared >= max_range_squared)
+        if (!std::isfinite(range_squared) || range_squared < min_range_squared)
         {
           ++rejected;
           continue;
         }
 
-        output.data.insert(output.data.end(), point, point + input.point_step);
+        if (range_squared < max_range_squared) {
+          output.data.insert(output.data.end(), point, point + input.point_step);
+          if (mapping_output) {
+            mapping_output->data.insert(
+              mapping_output->data.end(), point, point + input.point_step);
+          }
+        } else if (mapping_output) {
+          // OctoMap interprets an endpoint beyond sensor_model.max_range as a
+          // free-space ray without marking that endpoint occupied. Keeping
+          // these rays lets a later observation clear a removed obstacle.
+          mapping_output->data.insert(
+            mapping_output->data.end(), point, point + input.point_step);
+        } else {
+          ++rejected;
+        }
       }
     }
 
     output.width = output.data.size() / input.point_step;
     output.row_step = output.width * output.point_step;
     output.is_dense = true;
+    if (mapping_output) {
+      mapping_output->width = mapping_output->data.size() / input.point_step;
+      mapping_output->row_step = mapping_output->width * mapping_output->point_step;
+      mapping_output->is_dense = true;
+    }
 
     RCLCPP_INFO_THROTTLE(
       get_logger(), *get_clock(), 5000,
@@ -182,6 +216,7 @@ private:
   std::string input_topic_;
   std::string output_topic_;
   std::string secondary_output_topic_;
+  bool secondary_include_max_range_rays_{false};
   double min_valid_range_{0.2};
   double max_valid_range_{200.0};
   std::mutex cloud_mutex_;
