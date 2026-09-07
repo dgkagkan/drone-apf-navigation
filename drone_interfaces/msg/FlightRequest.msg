@@ -4,6 +4,7 @@ uint8 DISARM=2
 uint8 LAND=3
 uint8 TRANSITION_TO_FW=4
 uint8 TRANSITION_TO_MC=5
+uint8 FORCE_DISARM=6
 
 std_msgs/Header header
 uint8 request

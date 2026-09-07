@@ -52,6 +52,8 @@ public:
       default_speed_m_s_, declare_parameter<double>("max_speed_m_s", 20.0));
     altitude_gain_ = std::max(
       0.1, declare_parameter<double>("altitude_gain", 0.8));
+    multicopter_arrival_gain_ = std::max(
+      0.1, declare_parameter<double>("multicopter_arrival_gain", 0.8));
     max_vertical_speed_m_s_ = std::max(
       0.2, declare_parameter<double>("max_vertical_speed_m_s", 3.0));
     transition_request_period_s_ = std::max(
@@ -431,6 +433,8 @@ private:
     const double requested_speed = has_speed_override ? speed_override_m_s :
       (goal->cruise_speed_m_s > 0.0 ? goal->cruise_speed_m_s : default_speed_m_s_);
     const double speed = std::clamp(requested_speed, 0.2, max_speed_m_s_);
+    const double horizontal_speed = goal->use_fixed_wing ? speed :
+      std::min(speed, multicopter_arrival_gain_ * horizontal_distance);
     MotionCommand command;
     command.header.stamp = now();
     command.header.frame_id = "map";
@@ -441,8 +445,8 @@ private:
     command.hold_altitude = true;
     command.target_altitude_m = target.z;
     if (horizontal_distance > 0.05) {
-      command.velocity_enu.x = speed * east / horizontal_distance;
-      command.velocity_enu.y = speed * north / horizontal_distance;
+      command.velocity_enu.x = horizontal_speed * east / horizontal_distance;
+      command.velocity_enu.y = horizontal_speed * north / horizontal_distance;
     }
     if (!goal->use_fixed_wing) {
       command.velocity_enu.z = std::clamp(
@@ -482,6 +486,7 @@ private:
   double default_speed_m_s_ {15.0};
   double max_speed_m_s_ {20.0};
   double altitude_gain_ {0.8};
+  double multicopter_arrival_gain_ {0.8};
   double max_vertical_speed_m_s_ {3.0};
   double transition_request_period_s_ {1.0};
   std::mutex mutex_;

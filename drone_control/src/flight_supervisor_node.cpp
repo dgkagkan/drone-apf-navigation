@@ -31,6 +31,13 @@ using TransitionGoalHandle = rclcpp_action::ServerGoalHandle<TransitionVtol>;
 using std::placeholders::_1;
 using std::placeholders::_2;
 
+namespace
+{
+
+constexpr float kPx4ForceDisarmMagic = 21196.0F;
+
+}  // namespace
+
 class FlightSupervisorNode : public rclcpp::Node
 {
 public:
@@ -41,6 +48,8 @@ public:
       0.1, declare_parameter<double>("takeoff_tolerance_m", 0.5));
     command_period_s_ = std::max(
       0.2, declare_parameter<double>("vehicle_command_period_s", 1.0));
+    land_stuck_warning_s_ = std::max(
+      1.0, declare_parameter<double>("land_stuck_warning_sec", 15.0));
 
     state_sub_ = create_subscription<VehicleState>(
       "/vehicle/state", 10, std::bind(&FlightSupervisorNode::onState, this, _1));
@@ -70,7 +79,9 @@ public:
 
     timer_ = create_wall_timer(
       std::chrono::milliseconds(50), std::bind(&FlightSupervisorNode::onTimer, this));
-    RCLCPP_INFO(get_logger(), "Flight supervisor ready: arm, takeoff, land, VTOL transition");
+    RCLCPP_INFO(
+      get_logger(),
+      "Flight supervisor ready: arm, guarded takeoff, land, force disarm, VTOL transition");
   }
 
 private:
@@ -172,6 +183,9 @@ private:
       case FlightRequest::TRANSITION_TO_MC:
         startManualTransition(false);
         break;
+      case FlightRequest::FORCE_DISARM:
+        forceDisarm();
+        break;
       default:
         break;
     }
@@ -180,9 +194,18 @@ private:
   rclcpp_action::GoalResponse handleTakeoffGoal(
     const rclcpp_action::GoalUUID &, const std::shared_ptr<const Takeoff::Goal> goal)
   {
-    if (!std::isfinite(goal->target_altitude_m) || goal->target_altitude_m <= 0.5 ||
-      !operationIdle())
-    {
+    if (!std::isfinite(goal->target_altitude_m) || goal->target_altitude_m <= 0.5) {
+      RCLCPP_WARN(get_logger(), "Rejected TAKEOFF: target altitude must be above 0.5 m");
+      return rclcpp_action::GoalResponse::REJECT;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!have_state_ || !state_.armed) {
+      RCLCPP_WARN(get_logger(), "Rejected TAKEOFF: vehicle must be armed first");
+      return rclcpp_action::GoalResponse::REJECT;
+    }
+    if (operation_ != Operation::IDLE) {
+      RCLCPP_WARN(get_logger(), "Rejected TAKEOFF: another flight operation is active");
       return rclcpp_action::GoalResponse::REJECT;
     }
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
@@ -199,7 +222,7 @@ private:
     std::lock_guard<std::mutex> lock(mutex_);
     operation_ = Operation::TAKEOFF;
     takeoff_goal_ = goal_handle;
-    arm_offboard_requested_ = true;
+    arm_offboard_requested_ = false;
     last_vehicle_command_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
 
@@ -222,6 +245,8 @@ private:
     land_goal_ = goal_handle;
     manual_operation_ = false;
     arm_offboard_requested_ = false;
+    land_command_sent_ = false;
+    land_started_at_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
     last_vehicle_command_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
 
@@ -255,6 +280,8 @@ private:
     operation_ = Operation::LAND;
     manual_operation_ = true;
     arm_offboard_requested_ = false;
+    land_command_sent_ = false;
+    land_started_at_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
     last_vehicle_command_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
 
@@ -294,18 +321,36 @@ private:
       finishOperation();
       return;
     }
-    if (state.vehicle_mode != VehicleState::MODE_MULTICOPTER && commandDue()) {
-      sendCommand(VC::VEHICLE_CMD_DO_VTOL_TRANSITION, 3.0F);
+
+    if (!state.armed) {
+      auto result = std::make_shared<Takeoff::Result>();
+      result->success = false;
+      result->message = "vehicle disarmed; ARM is required before TAKEOFF";
+      result->final_altitude_m = state.position_enu.z;
+      takeoff_goal_->abort(result);
+      RCLCPP_ERROR(get_logger(), "Aborted TAKEOFF because the vehicle became disarmed");
+      finishOperation();
+      return;
     }
-    if (!state.armed || !state.offboard) arm_offboard_requested_ = true;
-    processArmOffboard(state);
+
+    // Publish the setpoint before requesting Offboard so PX4 sees a live stream.
     publishTakeoffIntent(goal->target_altitude_m, goal->climb_speed_m_s);
+    std::string phase = "climbing";
+    if (state.vehicle_mode != VehicleState::MODE_MULTICOPTER) {
+      phase = "transitioning to multicopter";
+      if (commandDue()) sendCommand(VC::VEHICLE_CMD_DO_VTOL_TRANSITION, 3.0F);
+    } else if (!state.offboard) {
+      phase = "activating offboard";
+      if (commandDue()) sendCommand(VC::VEHICLE_CMD_DO_SET_MODE, 1.0F, 6.0F);
+    }
 
     auto feedback = std::make_shared<Takeoff::Feedback>();
-    feedback->phase = state.armed && state.offboard ? "climbing" : "arming";
+    feedback->phase = phase;
     feedback->current_altitude_m = state.position_enu.z;
     takeoff_goal_->publish_feedback(feedback);
-    if (state.position_enu.z >= goal->target_altitude_m - takeoff_tolerance_m_) {
+    if (state.vehicle_mode == VehicleState::MODE_MULTICOPTER && state.offboard &&
+      state.position_enu.z >= goal->target_altitude_m - takeoff_tolerance_m_)
+    {
       auto result = std::make_shared<Takeoff::Result>();
       result->success = true;
       result->message = "takeoff complete";
@@ -317,25 +362,28 @@ private:
 
   void processLand(const VehicleState & state)
   {
-    // Landing owns the flight mode until PX4 confirms touchdown and disarming.
+    // PX4 owns the complete landing sequence after NAV_LAND is accepted.
     arm_offboard_requested_ = false;
     if (land_goal_ && land_goal_->is_canceling()) {
       auto result = std::make_shared<Land::Result>();
       result->success = false;
       result->message = "landing canceled";
       land_goal_->canceled(result);
-      requestArmOffboard();
       finishOperation();
       return;
     }
 
+    if (!land_command_sent_) {
+      sendCommand(VC::VEHICLE_CMD_NAV_LAND);
+      land_command_sent_ = true;
+      land_started_at_ = now();
+      RCLCPP_INFO(
+        get_logger(), "Sent targeted PX4 NAV_LAND; waiting for PX4 landing and disarm");
+    }
+
     if (state.landed_valid && state.landed) {
       if (state.armed) {
-        if (commandDue()) {
-          sendCommand(VC::VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0F);
-          RCLCPP_INFO(get_logger(), "PX4 reports landed; disarm requested");
-        }
-        publishLandFeedback(state, "disarming");
+        publishLandFeedback(state, "PX4 landed; waiting for PX4 disarm");
         return;
       }
 
@@ -356,20 +404,17 @@ private:
         "Waiting for a fresh PX4 vehicle_land_detected state");
     }
 
-    if (state.vehicle_mode == VehicleState::MODE_FIXED_WING) {
-      if (commandDue()) sendCommand(VC::VEHICLE_CMD_DO_VTOL_TRANSITION, 3.0F);
-    } else if (commandDue()) {
-      VC command;
-      command.command = VC::VEHICLE_CMD_DO_SET_MODE;
-      command.param1 = 1.0F;
-      command.param2 = 4.0F;
-      command.param3 = 6.0F;
-      command_pub_->publish(command);
+    const bool landing_stuck = land_command_sent_ &&
+      (now() - land_started_at_).seconds() >= land_stuck_warning_s_;
+    if (landing_stuck) {
+      RCLCPP_ERROR_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "PX4 AUTO_LAND has not confirmed touchdown after %.1f s; if the vehicle is "
+        "physically on the ground, use FORCE DISARM",
+        (now() - land_started_at_).seconds());
     }
-
     publishLandFeedback(
-      state, state.vehicle_mode == VehicleState::MODE_FIXED_WING ?
-      "transitioning to multicopter" : "landing");
+      state, landing_stuck ? "PX4 AUTO_LAND waiting for touchdown detection" : "PX4 landing");
   }
 
   void publishLandFeedback(const VehicleState & state, const std::string & phase)
@@ -417,11 +462,57 @@ private:
     }
   }
 
+  void forceDisarm()
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    arm_offboard_requested_ = false;
+
+    if (takeoff_goal_) {
+      auto result = std::make_shared<Takeoff::Result>();
+      result->success = false;
+      result->message = "takeoff interrupted by force disarm";
+      result->final_altitude_m = state_.position_enu.z;
+      if (takeoff_goal_->is_canceling()) {
+        takeoff_goal_->canceled(result);
+      } else if (takeoff_goal_->is_active()) {
+        takeoff_goal_->abort(result);
+      }
+    }
+    if (land_goal_) {
+      auto result = std::make_shared<Land::Result>();
+      result->success = false;
+      result->message = "landing interrupted by force disarm";
+      if (land_goal_->is_canceling()) {
+        land_goal_->canceled(result);
+      } else if (land_goal_->is_active()) {
+        land_goal_->abort(result);
+      }
+    }
+    if (transition_goal_) {
+      auto result = std::make_shared<TransitionVtol::Result>();
+      result->success = false;
+      result->message = "transition interrupted by force disarm";
+      if (transition_goal_->is_canceling()) {
+        transition_goal_->canceled(result);
+      } else if (transition_goal_->is_active()) {
+        transition_goal_->abort(result);
+      }
+    }
+
+    finishOperation();
+    sendCommand(
+      VC::VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0F, kPx4ForceDisarmMagic);
+    RCLCPP_ERROR(
+      get_logger(), "FORCE DISARM sent to PX4; motors were commanded to stop immediately");
+  }
+
   void finishOperation()
   {
     publishInactiveIntent();
     operation_ = Operation::IDLE;
     manual_operation_ = false;
+    land_command_sent_ = false;
+    land_started_at_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
     takeoff_goal_.reset();
     land_goal_.reset();
     transition_goal_.reset();
@@ -452,6 +543,7 @@ private:
 
   double takeoff_tolerance_m_ {0.5};
   double command_period_s_ {1.0};
+  double land_stuck_warning_s_ {15.0};
   mutable std::mutex mutex_;
   Operation operation_ {Operation::IDLE};
   VehicleState state_;
@@ -459,7 +551,9 @@ private:
   bool arm_offboard_requested_ {false};
   bool transition_to_fw_ {false};
   bool manual_operation_ {false};
+  bool land_command_sent_ {false};
   rclcpp::Time last_vehicle_command_ {0, 0, RCL_ROS_TIME};
+  rclcpp::Time land_started_at_ {0, 0, RCL_ROS_TIME};
   std::shared_ptr<TakeoffGoalHandle> takeoff_goal_;
   std::shared_ptr<LandGoalHandle> land_goal_;
   std::shared_ptr<TransitionGoalHandle> transition_goal_;

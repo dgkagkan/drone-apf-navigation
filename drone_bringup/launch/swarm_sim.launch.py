@@ -116,6 +116,8 @@ def _launch_setup(context):
     operator_terminal = LaunchConfiguration("operator_terminal").perform(context)
     use_dashboard = LaunchConfiguration("use_dashboard").perform(context)
     open_dashboard = LaunchConfiguration("open_dashboard").perform(context)
+    photo_save_dir = LaunchConfiguration("photo_save_dir")
+    record_save_dir = LaunchConfiguration("record_save_dir")
     use_rviz = LaunchConfiguration("use_rviz").perform(context).lower() in ("1", "true")
     use_mapping = LaunchConfiguration("use_mapping").perform(context).lower() in (
         "1", "true"
@@ -369,6 +371,8 @@ def _launch_setup(context):
                 "operator_terminal": operator_terminal,
                 "use_dashboard": use_dashboard,
                 "open_dashboard": open_dashboard,
+                "photo_save_dir": photo_save_dir,
+                "record_save_dir": record_save_dir,
             }.items(),
         )],
     ))
@@ -435,6 +439,14 @@ def generate_launch_description():
         DeclareLaunchArgument("operator_terminal", default_value="false"),
         DeclareLaunchArgument("use_dashboard", default_value="true"),
         DeclareLaunchArgument("open_dashboard", default_value="true"),
+        DeclareLaunchArgument(
+            "photo_save_dir",
+            default_value=os.path.join(home, "drone_dashboard_photos"),
+        ),
+        DeclareLaunchArgument(
+            "record_save_dir",
+            default_value=os.path.join(home, "drone_dashboard_recordings"),
+        ),
         DeclareLaunchArgument("use_rviz", default_value="true"),
         DeclareLaunchArgument("use_mapping", default_value="true"),
         DeclareLaunchArgument("mapping_rate_hz", default_value="5.0"),

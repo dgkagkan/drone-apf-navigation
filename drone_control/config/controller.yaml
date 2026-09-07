@@ -58,6 +58,7 @@ flight_supervisor:
   ros__parameters:
     takeoff_tolerance_m: 0.5
     vehicle_command_period_s: 1.0
+    land_stuck_warning_sec: 15.0
 
 automated_mission:
   ros__parameters:
@@ -136,13 +137,15 @@ navigation_server:
     default_speed_m_s: 15.0
     max_speed_m_s: 20.0
     altitude_gain: 0.8
+    multicopter_arrival_gain: 0.8
     max_vertical_speed_m_s: 3.0
     transition_request_period_s: 1.0
 
 route_executor:
   ros__parameters:
-    home.horizontal_tolerance_m: 0.5
-    home.altitude_tolerance_m: 0.5
+    home.horizontal_tolerance_m: 1.0
+    home.altitude_tolerance_m: 0.75
+    home.timeout_sec: 180.0
 
 navigation_client:
   ros__parameters:

@@ -630,6 +630,9 @@ private:
           request->takeoff_altitude_m, request->takeoff_climb_speed_m_s,
           response->message);
         break;
+      case SwarmCommand::Request::FORCE_DISARM:
+        response->accepted = forceDisarmDrones(request->drone_id, response->message);
+        break;
       default:
         response->message = "unknown swarm command";
         break;
@@ -854,13 +857,35 @@ private:
     }
 
     std::vector<std::string> selected_drones;
+    std::vector<std::string> unarmed_drones;
     {
       std::lock_guard<std::mutex> lock(mutex_);
+      if (dispatch_phase_ != DispatchPhase::IDLE) {
+        message = "cannot override flight state while route acceptance feedback is pending";
+        return false;
+      }
       const auto current_time = now();
       for (const auto & drone : drones_) {
         if (!selected_drone_id.empty() && drone->id != selected_drone_id) continue;
-        if (droneHealthy(*drone, current_time)) selected_drones.push_back(drone->id);
+        if (!droneHealthy(*drone, current_time)) continue;
+        selected_drones.push_back(drone->id);
+        if (command_type == SwarmMissionCommand::TAKEOFF && !drone->state.armed) {
+          unarmed_drones.push_back(drone->id);
+        }
       }
+      if (!unarmed_drones.empty()) {
+        std::ostringstream reason;
+        reason << "takeoff rejected; ARM first:";
+        for (const auto & drone_id : unarmed_drones) reason << ' ' << drone_id;
+        message = reason.str();
+        return false;
+      }
+      for (const auto & drone_id : selected_drones) {
+        detachDroneRouteLocked(drone_id, true);
+        auxiliary_routes_.erase(drone_id);
+        findDrone(drone_id)->return_home_active = false;
+      }
+      if (!selected_drones.empty()) invalidatePlannedRoutesLocked();
     }
     if (selected_drones.empty()) {
       message = selected_drone_id.empty() ?
@@ -880,6 +905,55 @@ private:
       status_message_ = message;
     }
     RCLCPP_INFO(get_logger(), "%s", message.c_str());
+    return true;
+  }
+
+  bool forceDisarmDrones(const std::string & selected_drone_id, std::string & message)
+  {
+    std::vector<std::string> selected_drones;
+    bool abort_pending_dispatch = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const auto current_time = now();
+      for (const auto & drone : drones_) {
+        if (!selected_drone_id.empty() && drone->id != selected_drone_id) continue;
+        const bool state_fresh = drone->have_state &&
+          (current_time - drone->last_update).seconds() <= drone_state_timeout_s_;
+        if (state_fresh && drone->state.armed) selected_drones.push_back(drone->id);
+      }
+      abort_pending_dispatch = !selected_drones.empty() &&
+        dispatch_phase_ != DispatchPhase::IDLE;
+    }
+
+    if (selected_drones.empty()) {
+      message = selected_drone_id.empty() ?
+        "no connected armed drones are available for force disarm" :
+        "selected drone is unknown, disconnected, or already disarmed";
+      return false;
+    }
+
+    if (abort_pending_dispatch) {
+      abortActiveMission("force disarm interrupted a pending mission dispatch");
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      for (const auto & drone_id : selected_drones) {
+        detachDroneRouteLocked(drone_id, true);
+        auxiliary_routes_.erase(drone_id);
+        findDrone(drone_id)->return_home_active = false;
+      }
+      invalidatePlannedRoutesLocked();
+    }
+
+    publishFlightCommand(SwarmMissionCommand::FORCE_DISARM, selected_drones);
+    message = "FORCE DISARM sent to " + std::to_string(selected_drones.size()) +
+      " drone(s); motors commanded to stop immediately";
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      status_message_ = message;
+    }
+    RCLCPP_ERROR(get_logger(), "%s", message.c_str());
     return true;
   }
 

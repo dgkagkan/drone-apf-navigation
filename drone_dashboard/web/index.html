@@ -28,6 +28,7 @@
         <button class="button primary" data-all="takeoff">TAKEOFF ALL</button>
         <button class="button danger" data-command="land">LAND ALL</button>
         <button class="button" data-command="home">HOME ALL</button>
+        <button class="button danger ghost" data-all="force_disarm">FORCE DISARM ALL</button>
         <button class="button danger" data-command="cancel">CANCEL MISSION</button>
         <label>Takeoff altitude <input id="takeoff-altitude" type="number" value="15" min="2" max="100" step="1"> m</label>
       </div>
@@ -99,9 +100,49 @@
       </div>
       <div id="camera-grid" class="camera-grid"></div>
     </section>
+
+    <section class="panel media-storage-section">
+      <div class="panel-heading">
+        <div><p class="eyebrow">FILES</p><h2>Snapshot &amp; recording storage</h2></div>
+        <p>Choose separate folders before capturing media</p>
+      </div>
+      <div class="media-storage-panel">
+        <div class="media-storage-row">
+          <div class="media-storage-title"><p class="eyebrow">SNAPSHOTS</p><b>Photo storage</b></div>
+          <div class="media-storage-actions">
+            <button class="button" id="choose-photo-folder">CHOOSE FOLDER</button>
+            <label>NEW FOLDER NAME
+              <input id="photo-folder-name" type="text" value="drone_photos" maxlength="80">
+            </label>
+            <button class="button primary" id="create-photo-folder">CREATE FOLDER</button>
+            <label>SERVER PATH
+              <input id="photo-server-path" type="text" placeholder="/home/user/drone_photos">
+            </label>
+            <button class="button" id="configure-photo-path">USE PATH</button>
+          </div>
+          <p id="photo-storage-status">No folder selected. SNAPSHOT is disabled.</p>
+        </div>
+        <div class="media-storage-row">
+          <div class="media-storage-title"><p class="eyebrow">RECORDINGS</p><b>Video storage</b></div>
+          <div class="media-storage-actions">
+            <button class="button" id="choose-record-folder">CHOOSE FOLDER</button>
+            <label>NEW FOLDER NAME
+              <input id="record-folder-name" type="text" value="drone_recordings" maxlength="80">
+            </label>
+            <button class="button primary" id="create-record-folder">CREATE FOLDER</button>
+            <label>SERVER PATH
+              <input id="record-server-path" type="text" placeholder="/home/user/drone_recordings">
+            </label>
+            <button class="button" id="configure-record-path">USE PATH</button>
+          </div>
+          <p id="record-storage-status">No folder selected. RECORD is disabled.</p>
+        </div>
+      </div>
+    </section>
   </main>
 
   <div id="toast" class="toast"></div>
+  <script src="/polling.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

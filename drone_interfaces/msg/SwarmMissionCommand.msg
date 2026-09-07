@@ -5,6 +5,7 @@ uint8 LAND=3
 uint8 SET_LIDAR_RANGE=4
 uint8 ARM=5
 uint8 TAKEOFF=6
+uint8 FORCE_DISARM=7
 
 std_msgs/Header header
 uint64 command_id

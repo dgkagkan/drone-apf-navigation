@@ -11,6 +11,18 @@ let dragging = false;
 let moved = false;
 let dragStart = null;
 let cameraIds = [];
+let cameraCleanups = [];
+let photoParentDirectoryHandle = null;
+let photoDirectoryHandle = null;
+let photoServerDirectoryConfigured = false;
+let photoServerDirectoryPath = "";
+let recordParentDirectoryHandle = null;
+let recordDirectoryHandle = null;
+let recordServerDirectoryConfigured = false;
+let recordServerDirectoryPath = "";
+const cameraRecordings = new Map();
+const RECORDING_FRAME_RATE = 30;
+const RECORDING_STOP_TIMEOUT_MS = 5000;
 let gimbalTargetIds = [];
 let heldGimbal = null;
 let droneInteractionUntil = 0;
@@ -64,13 +76,17 @@ function toast(message, error = false) {
   toast.timer = setTimeout(() => element.className = "toast", 3600);
 }
 
-async function refresh() {
+async function refresh(signal) {
+  if (document.hidden) return;
   try {
-    const response = await fetch("/api/state", { cache: "no-store" });
+    const response = await fetch("/api/state", { cache: "no-store", signal });
+    if (!response.ok) throw new Error(`State request failed: ${response.status}`);
     state = await response.json();
+    if (signal.aborted) return;
     render();
   } catch (error) {
     setConnection(false, "Dashboard offline");
+    throw error;
   }
 }
 
@@ -158,6 +174,8 @@ function renderDrones() {
       (drone.has_speed_override ? drone.speed_override_m_s.toFixed(1) : "15.0");
     const lidarRange = lidarRangeDrafts.get(drone.drone_id) ?? drone.lidar_range_m.toFixed(0);
     const controlsDisabled = drone.connected && routingEnabled ? "" : "disabled";
+    const takeoffDisabled = controlsDisabled === "" && drone.armed ? "" : "disabled";
+    const forceDisarmDisabled = drone.connected && drone.armed ? "" : "disabled";
     const badgeText = drone.safety_excluded ?
       (drone.return_home_active ? "BATTERY RTH" : "SAFETY EXCLUDED") :
       (!enabled ? "OFF / EXCLUDED" : (drone.connected ? "connected" : "offline"));
@@ -195,9 +213,10 @@ function renderDrones() {
       <div class="apf-line">APF ${telemetry?.active_mode || "—"} · obstacle ${obstacle == null ? "—" : obstacle.toFixed(1) + " m"}</div>
       <div class="drone-actions">
         <button class="button arm" data-drone-arm="${drone.drone_id}" ${controlsDisabled}>ARM</button>
-        <button class="button primary" data-drone-takeoff="${drone.drone_id}" ${controlsDisabled}>TAKEOFF</button>
+        <button class="button primary" data-drone-takeoff="${drone.drone_id}" ${takeoffDisabled}>TAKEOFF</button>
         <button class="button" data-drone-home="${drone.drone_id}" ${controlsDisabled}>HOME</button>
         <button class="button danger" data-drone-land="${drone.drone_id}" ${controlsDisabled}>LAND</button>
+        <button class="button danger ghost" data-drone-force-disarm="${drone.drone_id}" ${forceDisarmDisabled}>FORCE DISARM</button>
         <button class="button ${enabled ? "danger ghost" : "arm"}" data-drone-membership="${drone.drone_id}" data-membership-command="${membershipCommand}" ${membershipDisabled}>${membershipLabel}</button>
       </div>
     </article>`;
@@ -207,11 +226,26 @@ function renderDrones() {
 function renderCameras() {
   const ids = state.drones.filter(drone => drone.connected).map(drone => drone.drone_id);
   if (JSON.stringify(ids) === JSON.stringify(cameraIds)) return;
+  cameraRecordings.forEach((recording, id) => {
+    if (!ids.includes(id)) stopCameraRecording(id);
+  });
+  cameraCleanups.forEach(cleanup => cleanup());
   cameraIds = ids;
   const grid = document.getElementById("camera-grid");
+  const snapshotDisabled = photoDirectoryHandle || photoServerDirectoryConfigured ? "" : "disabled";
+  const recordDisabled = recordDirectoryHandle || recordServerDirectoryConfigured ? "" : "disabled";
   grid.innerHTML = ids.length ? ids.map(id =>
-    `<div class="camera"><img id="camera-${id}" alt="${id} camera"><span class="camera-label">${id}</span></div>`
+    `<div class="camera">
+      <img id="camera-${id}" alt="${id} camera">
+      <span class="camera-label">${id}</span>
+      <div class="camera-actions">
+        <button class="button camera-snapshot" data-camera-snapshot="${id}" ${snapshotDisabled}>SNAPSHOT</button>
+        <button class="button camera-record" data-camera-record="${id}" ${recordDisabled}>RECORD</button>
+      </div>
+    </div>`
   ).join("") : `<div class="camera-empty">Camera streams appear when drones connect</div>`;
+  cameraCleanups = ids.map(id => startCamera(id));
+  updateCameraActionAvailability();
 }
 
 function renderGimbalTargets() {
@@ -238,14 +272,433 @@ function renderGimbalTargets() {
     "Hold a direction to move the selected gimbal. Release to stop.";
 }
 
-function refreshCameras() {
-  const stamp = Date.now();
-  cameraIds.forEach(id => {
-    const image = document.getElementById(`camera-${id}`);
-    if (image && state.camera_drones.includes(id)) {
-      image.src = `/api/camera/${encodeURIComponent(id)}.jpg?t=${stamp}`;
+function startCamera(id) {
+  const image = document.getElementById(`camera-${id}`);
+  const label = image.parentElement.querySelector(".camera-label");
+  let displayedUrl = null;
+  const stop = startPolling(async signal => {
+    if (document.hidden) return;
+    let nextUrl = null;
+    try {
+      const response = await fetch(`/api/camera/${encodeURIComponent(id)}.jpg`, {
+        cache: "no-store", signal,
+      });
+      if (!response.ok) throw new Error(`Camera request failed: ${response.status}`);
+      nextUrl = URL.createObjectURL(await response.blob());
+      const nextImage = new Image();
+      nextImage.src = nextUrl;
+      await nextImage.decode();
+      if (signal.aborted || !image.isConnected) return;
+      drawRecordingFrame(id, nextImage);
+      // Replace only after a complete image is decoded; retain the last frame on error.
+      image.src = nextUrl;
+      if (displayedUrl) URL.revokeObjectURL(displayedUrl);
+      displayedUrl = nextUrl;
+      nextUrl = null;
+      label.textContent = id;
+    } catch (error) {
+      label.textContent = `${id} · reconnecting${displayedUrl ? " (last frame)" : ""}`;
+      throw error;
+    } finally {
+      if (nextUrl) URL.revokeObjectURL(nextUrl);
     }
+  }, DASHBOARD_INTERVAL_MS);
+  return () => {
+    stop();
+    if (displayedUrl) URL.revokeObjectURL(displayedUrl);
+  };
+}
+
+async function saveCameraSnapshot(id, button) {
+  button.disabled = true;
+  try {
+    if (photoDirectoryHandle) {
+      await ensureDirectoryWritePermission(photoDirectoryHandle);
+      const response = await fetch(`/api/camera/${encodeURIComponent(id)}.jpg`, {
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`Camera frame unavailable: ${response.status}`);
+      const droneDirectory = await photoDirectoryHandle.getDirectoryHandle(id, { create: true });
+      const filename = `snapshot_${new Date().toISOString().replace(/[:.]/g, "-")}.jpg`;
+      const fileHandle = await droneDirectory.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      try {
+        await writable.write(await response.blob());
+        await writable.close();
+      } catch (error) {
+        await writable.abort();
+        throw error;
+      }
+      toast(`Snapshot saved: ${photoDirectoryHandle.name}/${id}/${filename}`);
+    } else if (photoServerDirectoryConfigured) {
+      const response = await fetch(`/api/camera/${encodeURIComponent(id)}/snapshot`, {
+        method: "POST",
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "Snapshot failed");
+      toast(result.message || "Snapshot saved");
+    } else {
+      throw new Error("Choose a snapshot folder first");
+    }
+  } catch (error) {
+    toast(error.message || "Snapshot failed", true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function ensureDirectoryWritePermission(directoryHandle) {
+  if (!directoryHandle.queryPermission || !directoryHandle.requestPermission) return;
+  const current = await directoryHandle.queryPermission({ mode: "readwrite" });
+  if (current === "granted") return;
+  const requested = await directoryHandle.requestPermission({ mode: "readwrite" });
+  if (requested !== "granted") throw new Error("Folder write permission was not granted");
+}
+
+function setMediaStorageStatus(kind, message, error = false) {
+  const status = document.getElementById(`${kind}-storage-status`);
+  status.textContent = message;
+  status.className = error ? "media-storage-error" : "";
+  updateCameraActionAvailability();
+}
+
+function mediaParentDirectory(kind) {
+  return kind === "photo" ? photoParentDirectoryHandle : recordParentDirectoryHandle;
+}
+
+function setMediaDirectories(kind, parentDirectory, directory) {
+  if (kind === "photo") {
+    photoParentDirectoryHandle = parentDirectory;
+    photoDirectoryHandle = directory;
+    photoServerDirectoryConfigured = false;
+    photoServerDirectoryPath = "";
+  } else {
+    recordParentDirectoryHandle = parentDirectory;
+    recordDirectoryHandle = directory;
+    recordServerDirectoryConfigured = false;
+    recordServerDirectoryPath = "";
+  }
+}
+
+async function chooseMediaFolder(kind) {
+  if (!window.showDirectoryPicker) {
+    await chooseServerMediaFolder(kind);
+    return;
+  }
+  try {
+    const directoryHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+    await ensureDirectoryWritePermission(directoryHandle);
+    setMediaDirectories(kind, directoryHandle, directoryHandle);
+    setMediaStorageStatus(kind, `Using local folder: ${directoryHandle.name}`);
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      setMediaStorageStatus(kind, error.message || "Could not select folder", true);
+      toast(error.message || "Could not select folder", true);
+    }
+  }
+}
+
+function activateServerMediaDirectory(kind, path) {
+  if (kind === "photo") {
+    photoParentDirectoryHandle = null;
+    photoDirectoryHandle = null;
+    photoServerDirectoryConfigured = true;
+    photoServerDirectoryPath = path;
+  } else {
+    recordParentDirectoryHandle = null;
+    recordDirectoryHandle = null;
+    recordServerDirectoryConfigured = true;
+    recordServerDirectoryPath = path;
+  }
+  setMediaStorageStatus(kind, `Using server folder: ${path}`);
+}
+
+async function chooseServerMediaFolder(kind) {
+  try {
+    setMediaStorageStatus(kind, "Waiting for native folder selection...");
+    const response = await fetch("/api/storage/pick", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || "Could not open folder picker");
+    if (result.cancelled) {
+      setMediaStorageStatus(kind, "Folder selection cancelled.");
+      return;
+    }
+    activateServerMediaDirectory(kind, result.path);
+    toast(result.message || "Folder ready");
+  } catch (error) {
+    setMediaStorageStatus(kind, error.message || "Could not open folder picker", true);
+    toast(error.message || "Could not open folder picker", true);
+  }
+}
+
+async function configureServerMediaDirectory(kind, requestedPath = "") {
+  const path = requestedPath || document.getElementById(`${kind}-server-path`).value.trim();
+  if (!path) {
+    toast("Enter an absolute folder path", true);
+    return;
+  }
+  try {
+    const response = await fetch("/api/storage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, path }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || "Could not configure folder");
+    activateServerMediaDirectory(kind, path);
+    toast(result.message || "Folder ready");
+  } catch (error) {
+    setMediaStorageStatus(kind, error.message || "Could not configure folder", true);
+    toast(error.message || "Could not configure folder", true);
+  }
+}
+
+async function createMediaFolder(kind) {
+  const parentDirectory = mediaParentDirectory(kind);
+  const name = document.getElementById(`${kind}-folder-name`).value.trim();
+  if (!name || name === "." || name === ".." || /[\\/:*?"<>|]/.test(name)) {
+    toast("Enter a valid folder name", true);
+    return;
+  }
+  if (!parentDirectory) {
+    const serverParentPath = kind === "photo" ?
+      photoServerDirectoryPath : recordServerDirectoryPath;
+    if (!serverParentPath) {
+      toast("Choose a parent folder first", true);
+      return;
+    }
+    const childPath = `${serverParentPath.replace(/\/+$/, "")}/${name}`;
+    await configureServerMediaDirectory(kind, childPath);
+    return;
+  }
+  try {
+    const directoryHandle = await parentDirectory.getDirectoryHandle(name, { create: true });
+    await ensureDirectoryWritePermission(directoryHandle);
+    setMediaDirectories(kind, parentDirectory, directoryHandle);
+    setMediaStorageStatus(kind, `Using local folder: ${parentDirectory.name}/${directoryHandle.name}`);
+    toast(`Folder ready: ${directoryHandle.name}`);
+  } catch (error) {
+    setMediaStorageStatus(kind, error.message || "Could not create folder", true);
+    toast(error.message || "Could not create folder", true);
+  }
+}
+
+function updateCameraActionAvailability() {
+  document.querySelectorAll("[data-camera-snapshot]").forEach(button => {
+    button.disabled = !photoDirectoryHandle && !photoServerDirectoryConfigured;
   });
+  document.querySelectorAll("[data-camera-record]").forEach(button => {
+    const id = button.dataset.cameraRecord;
+    const recording = cameraRecordings.get(id);
+    const active = recording?.state === "recording";
+    const finalizing = recording && !active;
+    button.disabled = Boolean(finalizing) ||
+      (!recordDirectoryHandle && !recordServerDirectoryConfigured && !recording);
+    button.textContent = finalizing ? "SAVING..." : (active ? "STOP RECORDING" : "RECORD");
+    button.classList.toggle("is-recording", active);
+  });
+}
+
+function recordingMimeType() {
+  return [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm",
+  ].find(type => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function drawRecordingFrame(id, sourceImage) {
+  const recording = cameraRecordings.get(id);
+  if (!recording || recording.serverManaged || recording.recorder.state !== "recording") return;
+  const width = sourceImage.naturalWidth || sourceImage.width;
+  const height = sourceImage.naturalHeight || sourceImage.height;
+  if (!width || !height) return;
+  if (recording.canvas.width !== width || recording.canvas.height !== height) {
+    recording.canvas.width = width;
+    recording.canvas.height = height;
+  }
+  recording.context.drawImage(sourceImage, 0, 0, width, height);
+}
+
+async function finishCameraRecording(id, recording) {
+  try {
+    const blob = new Blob(recording.chunks, { type: recording.recorder.mimeType || "video/webm" });
+    if (!blob.size) throw new Error("Recording did not contain video data");
+    if (recording.serverStorage) {
+      const response = await fetch(`/api/camera/${encodeURIComponent(id)}/recording`, {
+        method: "POST",
+        headers: { "Content-Type": blob.type || "video/webm" },
+        body: blob,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "Recording upload failed");
+      toast(result.message || "Recording saved");
+    } else {
+      const droneDirectory = await recording.directoryHandle.getDirectoryHandle(id, { create: true });
+      const filename = `recording_${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
+      const fileHandle = await droneDirectory.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      try {
+        await writable.write(blob);
+        await writable.close();
+      } catch (error) {
+        await writable.abort();
+        throw error;
+      }
+      toast(`Recording saved: ${recording.directoryHandle.name}/${id}/${filename}`);
+    }
+  } catch (error) {
+    toast(error.message || "Recording failed", true);
+  } finally {
+    clearTimeout(recording.stopTimer);
+    recording.stream.getTracks().forEach(track => track.stop());
+    if (cameraRecordings.get(id) === recording) cameraRecordings.delete(id);
+    updateCameraActionAvailability();
+  }
+}
+
+function finalizeCameraRecording(id, recording) {
+  if (recording.finalizeStarted) return;
+  recording.finalizeStarted = true;
+  recording.state = "saving";
+  clearTimeout(recording.stopTimer);
+  updateCameraActionAvailability();
+  finishCameraRecording(id, recording);
+}
+
+async function stopServerCameraRecording(id, recording) {
+  try {
+    const response = await fetch(`/api/camera/${encodeURIComponent(id)}/recording/stop`, {
+      method: "POST",
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || "Recording could not stop");
+    toast(result.message || "Recording saved");
+  } catch (error) {
+    toast(error.message || "Recording could not stop", true);
+  } finally {
+    if (cameraRecordings.get(id) === recording) cameraRecordings.delete(id);
+    updateCameraActionAvailability();
+  }
+}
+
+function stopCameraRecording(id) {
+  const recording = cameraRecordings.get(id);
+  if (!recording || recording.state !== "recording") return;
+  recording.state = "stopping";
+  updateCameraActionAvailability();
+  if (recording.serverManaged) {
+    stopServerCameraRecording(id, recording);
+    return;
+  }
+  recording.stopTimer = setTimeout(
+    () => finalizeCameraRecording(id, recording),
+    RECORDING_STOP_TIMEOUT_MS,
+  );
+  if (recording.recorder.state === "inactive") {
+    finalizeCameraRecording(id, recording);
+    return;
+  }
+  try {
+    recording.recorder.requestData();
+  } catch (error) {
+    // Some browsers flush the last chunk only through stop().
+  }
+  try {
+    recording.recorder.stop();
+  } catch (error) {
+    finalizeCameraRecording(id, recording);
+  }
+}
+
+async function startServerCameraRecording(id, button) {
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/camera/${encodeURIComponent(id)}/recording/start`, {
+      method: "POST",
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || "Recording could not start");
+    cameraRecordings.set(id, {
+      state: "recording",
+      serverManaged: true,
+    });
+    toast(result.message || `Recording started: ${id}`);
+  } catch (error) {
+    toast(error.message || "Recording could not start", true);
+  } finally {
+    button.disabled = false;
+    updateCameraActionAvailability();
+  }
+}
+
+async function startCameraRecording(id, button) {
+  if (!recordDirectoryHandle && !recordServerDirectoryConfigured) {
+    toast("Choose a recording folder first", true);
+    return;
+  }
+  if (!recordDirectoryHandle && recordServerDirectoryConfigured) {
+    await startServerCameraRecording(id, button);
+    return;
+  }
+  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
+    toast("This browser does not support video recording", true);
+    return;
+  }
+  button.disabled = true;
+  let recording = null;
+  try {
+    if (recordDirectoryHandle) await ensureDirectoryWritePermission(recordDirectoryHandle);
+    const image = document.getElementById(`camera-${id}`);
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth || 640;
+    canvas.height = image.naturalHeight || 360;
+    const mimeType = recordingMimeType();
+    if (!mimeType) throw new Error("No supported WebM recording format");
+    const stream = canvas.captureStream(RECORDING_FRAME_RATE);
+    const recorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: 4_000_000,
+    });
+    recording = {
+      canvas,
+      context: canvas.getContext("2d"),
+      directoryHandle: recordDirectoryHandle,
+      serverStorage: !recordDirectoryHandle,
+      recorder,
+      stream,
+      chunks: [],
+      state: "recording",
+      finalizeStarted: false,
+      stopTimer: null,
+    };
+    recorder.ondataavailable = event => {
+      if (event.data.size > 0) recording.chunks.push(event.data);
+    };
+    recorder.onerror = event => {
+      recording.errorMessage = event.error?.message || "MediaRecorder failed";
+      stopCameraRecording(id);
+    };
+    recorder.onstop = () => { finalizeCameraRecording(id, recording); };
+    recorder.start(1000);
+    cameraRecordings.set(id, recording);
+    button.disabled = false;
+    updateCameraActionAvailability();
+    toast(`Recording started: ${id}`);
+  } catch (error) {
+    if (recording) {
+      clearTimeout(recording.stopTimer);
+      recording.stream.getTracks().forEach(track => track.stop());
+      if (cameraRecordings.get(id) === recording) cameraRecordings.delete(id);
+    }
+    toast(error.message || "Could not start recording", true);
+    button.disabled = false;
+    updateCameraActionAvailability();
+  }
 }
 
 function resizeCanvas() {
@@ -380,9 +833,17 @@ function drawVector(origin, vector, color) {
 }
 
 function allDrones(kind) {
-  const drones = (state?.drones || []).filter(
-    drone => drone.connected && drone.operator_enabled && !drone.safety_excluded);
+  const drones = kind === "force_disarm" ?
+    (state?.drones || []).filter(drone => drone.connected && drone.armed) :
+    (state?.drones || []).filter(
+      drone => drone.connected && drone.operator_enabled && !drone.safety_excluded);
   if (!drones.length) return toast("No connected drones", true);
+  if (kind === "takeoff") {
+    const unarmed = drones.filter(drone => !drone.armed).map(drone => drone.drone_id);
+    if (unarmed.length) return toast(`ARM first: ${unarmed.join(", ")}`, true);
+  }
+  if (kind === "force_disarm" && !window.confirm(
+    `FORCE DISARM ${drones.length} drone(s)? This stops the motors immediately and can cause a crash.`)) return;
   const altitude = Number(document.getElementById("takeoff-altitude").value);
   api("/api/swarm-command", { command: kind, altitude_m: altitude }).catch(() => {});
 }
@@ -443,6 +904,16 @@ droneGrid.addEventListener("input", event => {
 
 document.addEventListener("click", event => {
   const target = event.target;
+  if (target.dataset.cameraSnapshot) {
+    saveCameraSnapshot(target.dataset.cameraSnapshot, target);
+    return;
+  }
+  if (target.dataset.cameraRecord) {
+    const id = target.dataset.cameraRecord;
+    if (cameraRecordings.has(id)) stopCameraRecording(id);
+    else startCameraRecording(id, target);
+    return;
+  }
   if (target.dataset.gimbalCommand === "HOME") {
     sendGimbalCommand("HOME", true).catch(() => {});
     return;
@@ -453,25 +924,31 @@ document.addEventListener("click", event => {
   if (target.dataset.droneTakeoff) api("/api/swarm-command", { command: "takeoff", drone_id: target.dataset.droneTakeoff, altitude_m: Number(document.getElementById("takeoff-altitude").value) }).catch(() => {});
   if (target.dataset.droneHome) api("/api/swarm-command", { command: "home", drone_id: target.dataset.droneHome }).catch(() => {});
   if (target.dataset.droneLand) api("/api/swarm-command", { command: "land", drone_id: target.dataset.droneLand }).catch(() => {});
+  if (target.dataset.droneForceDisarm && window.confirm(
+    `FORCE DISARM ${target.dataset.droneForceDisarm}? This stops its motors immediately and can cause a crash.`)) {
+    api("/api/swarm-command", {
+      command: "force_disarm", drone_id: target.dataset.droneForceDisarm,
+    }).catch(() => {});
+  }
   if (target.dataset.droneMembership) api("/api/swarm-command", {
     command: target.dataset.membershipCommand, drone_id: target.dataset.droneMembership,
-  }).then(() => { droneInteractionUntil = 0; refresh(); }).catch(() => {});
+  }).then(() => { droneInteractionUntil = 0; }).catch(() => {});
   if (target.dataset.setDroneSpeed) {
     const input = document.querySelector(`[data-drone-speed="${target.dataset.setDroneSpeed}"]`);
     api("/api/drone/speed", { drone_id: target.dataset.setDroneSpeed, cruise_speed_m_s: Number(input.value) })
-      .then(() => { speedDrafts.delete(target.dataset.setDroneSpeed); droneInteractionUntil = 0; refresh(); })
+      .then(() => { speedDrafts.delete(target.dataset.setDroneSpeed); droneInteractionUntil = 0; })
       .catch(() => {});
   }
   if (target.dataset.clearDroneSpeed) {
     api("/api/drone/speed", { drone_id: target.dataset.clearDroneSpeed, clear: true })
-      .then(() => { speedDrafts.delete(target.dataset.clearDroneSpeed); droneInteractionUntil = 0; refresh(); })
+      .then(() => { speedDrafts.delete(target.dataset.clearDroneSpeed); droneInteractionUntil = 0; })
       .catch(() => {});
   }
   if (target.dataset.setDroneLidarRange) {
     const droneId = target.dataset.setDroneLidarRange;
     const input = document.querySelector(`[data-drone-lidar-range="${droneId}"]`);
     api("/api/drone/lidar-range", { drone_id: droneId, lidar_range_m: Number(input.value) })
-      .then(() => { lidarRangeDrafts.delete(droneId); droneInteractionUntil = 0; refresh(); })
+      .then(() => { lidarRangeDrafts.delete(droneId); droneInteractionUntil = 0; })
       .catch(() => {});
   }
   if (target.dataset.removeTarget) api("/api/targets/remove", { target_id: Number(target.dataset.removeTarget) }).catch(() => {});
@@ -499,6 +976,24 @@ window.addEventListener("blur", () => releaseGimbal());
 
 document.getElementById("add-target").addEventListener("click", () => {
   addCurrentTarget().catch(() => {});
+});
+document.getElementById("choose-photo-folder").addEventListener("click", () => {
+  chooseMediaFolder("photo");
+});
+document.getElementById("create-photo-folder").addEventListener("click", () => {
+  createMediaFolder("photo");
+});
+document.getElementById("configure-photo-path").addEventListener("click", () => {
+  configureServerMediaDirectory("photo");
+});
+document.getElementById("choose-record-folder").addEventListener("click", () => {
+  chooseMediaFolder("record");
+});
+document.getElementById("create-record-folder").addEventListener("click", () => {
+  createMediaFolder("record");
+});
+document.getElementById("configure-record-path").addEventListener("click", () => {
+  configureServerMediaDirectory("record");
 });
 
 canvas.addEventListener("mousedown", event => { dragging = true; moved = false; dragStart = { x: event.clientX, y: event.clientY, viewX: view.x, viewY: view.y }; });
@@ -536,6 +1031,10 @@ document.getElementById("map-center").onclick = () => { view = { x: 0, y: 0, met
 window.addEventListener("resize", resizeCanvas);
 
 resizeCanvas();
-refresh();
-setInterval(refresh, DASHBOARD_INTERVAL_MS);
-setInterval(refreshCameras, DASHBOARD_INTERVAL_MS);
+const stopStatePolling = startPolling(refresh, DASHBOARD_INTERVAL_MS);
+window.addEventListener("pagehide", event => {
+  if (event.persisted) return;
+  cameraRecordings.forEach((recording, id) => stopCameraRecording(id));
+  stopStatePolling();
+  cameraCleanups.forEach(cleanup => cleanup());
+});

@@ -50,9 +50,11 @@ public:
     navigate_server_wait_log_period_ms_ = std::max<int64_t>(
       1000, declare_parameter<int64_t>("navigate_server_wait_log_period_ms", 5000));
     home_horizontal_tolerance_m_ = std::max(
-      0.2, declare_parameter<double>("home.horizontal_tolerance_m", 0.5));
+      0.2, declare_parameter<double>("home.horizontal_tolerance_m", 1.0));
     home_altitude_tolerance_m_ = std::max(
-      0.2, declare_parameter<double>("home.altitude_tolerance_m", 0.5));
+      0.2, declare_parameter<double>("home.altitude_tolerance_m", 0.75));
+    home_route_timeout_s_ = std::max(
+      10.0, declare_parameter<double>("home.timeout_sec", 180.0));
 
     const auto command_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable().transient_local();
     const auto feedback_qos = rclcpp::QoS(rclcpp::KeepLast(100)).reliable();
@@ -201,7 +203,8 @@ private:
     }
     if (command->command == SwarmMissionCommand::LAND ||
       command->command == SwarmMissionCommand::ARM ||
-      command->command == SwarmMissionCommand::TAKEOFF) return;
+      command->command == SwarmMissionCommand::TAKEOFF ||
+      command->command == SwarmMissionCommand::FORCE_DISARM) return;
     if (command->command == SwarmMissionCommand::CANCEL) {
       handleCancelCommand(*command);
       return;
@@ -264,7 +267,9 @@ private:
           navigate_request_in_progress_ = false;
           active_navigate_goal_.reset();
           cancel_requested_ = false;
+          cancel_message_ = "route canceled";
           route_active_ = true;
+          route_started_at_ = now();
         }
       }
     }
@@ -297,6 +302,7 @@ private:
         command_id_ = command.command_id;
         revision_ = command.revision;
         cancel_requested_ = true;
+        cancel_message_ = "route removed by a newer mission revision";
         child = active_navigate_goal_;
       }
     }
@@ -319,6 +325,7 @@ private:
         command_id_ = command.command_id;
         revision_ = command.revision;
         cancel_requested_ = true;
+        cancel_message_ = "route canceled by coordinator";
         child = active_navigate_goal_;
       }
     }
@@ -332,23 +339,31 @@ private:
   {
     if (!commandTargetsThisDrone(command)) return;
 
-    NavigateGoalHandle::SharedPtr child;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      command_id_ = command.command_id;
-      if (route_active_) {
-        cancel_requested_ = true;
-        child = active_navigate_goal_;
-      }
-    }
-    if (child) navigate_client_->async_cancel_goal(child);
+    preemptRouteForFlightCommand(command, "LAND");
 
     FlightRequest request;
     request.header.stamp = now();
     request.header.frame_id = map_frame_;
     request.request = FlightRequest::LAND;
     flight_request_pub_->publish(request);
-    RCLCPP_WARN(get_logger(), "Accepted broadcast LAND command");
+    RCLCPP_WARN(
+      get_logger(), "Accepted targeted LAND command for %s", drone_id_.c_str());
+  }
+
+  void preemptRouteForFlightCommand(
+    const SwarmMissionCommand & command, const std::string & command_name)
+  {
+    NavigateGoalHandle::SharedPtr child;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      command_id_ = command.command_id;
+      if (route_active_) {
+        cancel_requested_ = true;
+        cancel_message_ = "route preempted by " + command_name;
+        child = active_navigate_goal_;
+      }
+    }
+    if (child) navigate_client_->async_cancel_goal(child);
   }
 
   void onFlightCommand(const SwarmMissionCommand::SharedPtr command)
@@ -356,14 +371,22 @@ private:
     if (!commandTargetsThisDrone(*command)) return;
     switch (command->command) {
       case SwarmMissionCommand::ARM:
+        preemptRouteForFlightCommand(*command, "ARM");
         publishFlightRequest(FlightRequest::ARM_OFFBOARD);
         RCLCPP_INFO(get_logger(), "Accepted broadcast ARM command");
         break;
       case SwarmMissionCommand::TAKEOFF:
+        preemptRouteForFlightCommand(*command, "TAKEOFF");
         sendTakeoffGoal(*command);
         break;
       case SwarmMissionCommand::LAND:
         handleLandCommand(*command);
+        break;
+      case SwarmMissionCommand::FORCE_DISARM:
+        preemptRouteForFlightCommand(*command, "FORCE DISARM");
+        publishFlightRequest(FlightRequest::FORCE_DISARM);
+        RCLCPP_ERROR(
+          get_logger(), "Accepted targeted FORCE DISARM command for %s", drone_id_.c_str());
         break;
       default:
         break;
@@ -408,22 +431,36 @@ private:
   void onTimer()
   {
     RouteTarget route_target;
+    NavigateGoalHandle::SharedPtr timed_out_child;
     uint64_t generation = 0;
     bool send_target = false;
     bool finish_canceled = false;
     bool finish_succeeded = false;
+    bool home_timed_out = false;
     bool precision_home_approach = false;
+    std::string canceled_message;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (!route_active_) return;
+      const bool home_route = route_purpose_ == SwarmRoute::PURPOSE_HOME ||
+        route_purpose_ == SwarmRoute::PURPOSE_LOW_BATTERY_RTH;
+      if (!cancel_requested_ && home_route &&
+        (now() - route_started_at_).seconds() >= home_route_timeout_s_)
+      {
+        cancel_requested_ = true;
+        cancel_message_ = "home route timed out";
+        timed_out_child = active_navigate_goal_;
+        home_timed_out = true;
+      }
       if (cancel_requested_ && !navigate_request_in_progress_ && !active_navigate_goal_) {
         finish_canceled = true;
         generation = generation_;
+        canceled_message = cancel_message_;
       } else if (!cancel_requested_ && active_target_index_ >= route_targets_.size()) {
         finish_succeeded = true;
         generation = generation_;
       } else if (cancel_requested_ || navigate_request_in_progress_ || active_navigate_goal_) {
-        return;
+        generation = generation_;
       } else if (!navigate_client_->action_server_is_ready()) {
         RCLCPP_WARN_THROTTLE(
           get_logger(), *get_clock(), navigate_server_wait_log_period_ms_,
@@ -441,8 +478,14 @@ private:
       }
     }
 
+    if (home_timed_out) {
+      if (timed_out_child) navigate_client_->async_cancel_goal(timed_out_child);
+      RCLCPP_ERROR(
+        get_logger(), "HOME route exceeded %.1f s and was canceled to release %s",
+        home_route_timeout_s_, drone_id_.c_str());
+    }
     if (finish_canceled) {
-      finishRoute(generation, SwarmMissionFeedback::CANCELED, "route canceled");
+      finishRoute(generation, SwarmMissionFeedback::CANCELED, canceled_message);
     } else if (finish_succeeded) {
       finishRoute(generation, SwarmMissionFeedback::SUCCEEDED, "route completed");
     } else if (send_target) {
@@ -513,6 +556,7 @@ private:
       {
         bool succeeded = false;
         bool canceled = false;
+        std::string canceled_message;
         {
           std::lock_guard<std::mutex> lock(mutex_);
           if (generation != generation_ || !route_active_) return;
@@ -520,6 +564,7 @@ private:
           succeeded = result.code == rclcpp_action::ResultCode::SUCCEEDED &&
             result.result && result.result->result_code == NavigateTo::Result::SUCCEEDED;
           canceled = cancel_requested_;
+          canceled_message = cancel_message_;
           if (succeeded) {
             ++active_target_index_;
             ++completed_target_count_;
@@ -528,7 +573,7 @@ private:
         if (succeeded) {
           RCLCPP_INFO(get_logger(), "Completed broadcast target %lu", target_id);
         } else if (canceled) {
-          finishRoute(generation, SwarmMissionFeedback::CANCELED, "route canceled");
+          finishRoute(generation, SwarmMissionFeedback::CANCELED, canceled_message);
         } else {
           const std::string message = result.result ? result.result->message : "no result";
           finishRoute(
@@ -542,14 +587,13 @@ private:
   void finishRoute(uint64_t generation, uint8_t state, const std::string & message)
   {
     SwarmMissionFeedback feedback;
-    bool land_at_home = false;
+    bool land_after_route = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (generation != generation_ || !route_active_) return;
       feedback = makeFeedbackLocked(state, message);
-      land_at_home = state == SwarmMissionFeedback::SUCCEEDED &&
-        (route_purpose_ == SwarmRoute::PURPOSE_HOME ||
-        route_purpose_ == SwarmRoute::PURPOSE_LOW_BATTERY_RTH);
+      land_after_route = state == SwarmMissionFeedback::SUCCEEDED &&
+        route_purpose_ == SwarmRoute::PURPOSE_LOW_BATTERY_RTH;
       last_feedback_state_ = state;
       last_feedback_message_ = message;
       route_active_ = false;
@@ -559,12 +603,14 @@ private:
       navigate_request_in_progress_ = false;
       active_navigate_goal_.reset();
       cancel_requested_ = false;
+      cancel_message_ = "route canceled";
       route_purpose_ = SwarmRoute::PURPOSE_MISSION;
     }
     mission_feedback_pub_->publish(feedback);
-    if (land_at_home) {
+    if (land_after_route) {
       publishFlightRequest(FlightRequest::LAND);
-      RCLCPP_WARN(get_logger(), "Home position reached; commanding local LAND");
+      RCLCPP_WARN(
+        get_logger(), "Low-battery RTH reached home; commanding local LAND");
     }
     RCLCPP_INFO(get_logger(), "Broadcast route finished: %s", message.c_str());
   }
@@ -573,8 +619,9 @@ private:
   std::string map_frame_ {"map"};
   std::string drone_id_;
   int64_t navigate_server_wait_log_period_ms_ {5000};
-  double home_horizontal_tolerance_m_ {0.5};
-  double home_altitude_tolerance_m_ {0.5};
+  double home_horizontal_tolerance_m_ {1.0};
+  double home_altitude_tolerance_m_ {0.75};
+  double home_route_timeout_s_ {180.0};
   uint64_t generation_ {0};
   uint64_t command_id_ {0};
   uint64_t mission_id_ {0};
@@ -586,9 +633,11 @@ private:
   uint32_t completed_target_count_ {0};
   uint8_t last_feedback_state_ {SwarmMissionFeedback::RECEIVED};
   std::string last_feedback_message_ {"waiting for mission"};
+  std::string cancel_message_ {"route canceled"};
   bool route_active_ {false};
   bool navigate_request_in_progress_ {false};
   bool cancel_requested_ {false};
+  rclcpp::Time route_started_at_ {0, 0, RCL_ROS_TIME};
   NavigateGoalHandle::SharedPtr active_navigate_goal_;
   rclcpp_action::Client<NavigateTo>::SharedPtr navigate_client_;
   rclcpp_action::Client<Takeoff>::SharedPtr takeoff_client_;

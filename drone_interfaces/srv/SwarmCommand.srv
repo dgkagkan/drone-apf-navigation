@@ -12,6 +12,7 @@ uint8 SET_DRONE_LIDAR_RANGE=10
 uint8 ARM=11
 uint8 TAKEOFF=12
 uint8 START_MISSION=13
+uint8 FORCE_DISARM=14
 
 uint8 command
 string drone_id

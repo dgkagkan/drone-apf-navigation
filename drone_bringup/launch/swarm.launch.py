@@ -9,6 +9,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction
 from launch.conditions import IfCondition
 from launch.substitutions import (
+    EnvironmentVariable,
     LaunchConfiguration,
     PathJoinSubstitution,
     PythonExpression,
@@ -27,6 +28,8 @@ def generate_launch_description():
     dashboard_host = LaunchConfiguration("dashboard_host")
     dashboard_port = LaunchConfiguration("dashboard_port")
     dashboard_rate_hz = LaunchConfiguration("dashboard_rate_hz")
+    photo_save_dir = LaunchConfiguration("photo_save_dir")
+    record_save_dir = LaunchConfiguration("record_save_dir")
     default_config = PathJoinSubstitution([
         FindPackageShare("drone_swarm"), "config", "swarm.yaml"
     ])
@@ -46,6 +49,18 @@ def generate_launch_description():
         DeclareLaunchArgument("dashboard_host", default_value="127.0.0.1"),
         DeclareLaunchArgument("dashboard_port", default_value="8765"),
         DeclareLaunchArgument("dashboard_rate_hz", default_value="60.0"),
+        DeclareLaunchArgument(
+            "photo_save_dir",
+            default_value=PathJoinSubstitution([
+                EnvironmentVariable("HOME"), "drone_dashboard_photos"
+            ]),
+        ),
+        DeclareLaunchArgument(
+            "record_save_dir",
+            default_value=PathJoinSubstitution([
+                EnvironmentVariable("HOME"), "drone_dashboard_recordings"
+            ]),
+        ),
         Node(
             package="drone_swarm",
             executable="swarm_coordinator_node",
@@ -76,6 +91,8 @@ def generate_launch_description():
                 "port": ParameterValue(dashboard_port, value_type=int),
                 "dashboard_rate_hz": ParameterValue(dashboard_rate_hz, value_type=float),
                 "camera_rate_hz": ParameterValue(dashboard_rate_hz, value_type=float),
+                "photo_save_dir": photo_save_dir,
+                "record_save_dir": record_save_dir,
             }],
             condition=IfCondition(use_dashboard),
         ),

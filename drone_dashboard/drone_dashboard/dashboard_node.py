@@ -3,9 +3,12 @@
 import json
 import math
 import queue
+import shutil
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -44,6 +47,7 @@ COMMANDS = {
     "rejoin": SwarmCommand.Request.ENABLE_DRONE,
     "arm": SwarmCommand.Request.ARM,
     "takeoff": SwarmCommand.Request.TAKEOFF,
+    "force_disarm": SwarmCommand.Request.FORCE_DISARM,
 }
 
 ASSIGNMENT_STATES = {
@@ -56,6 +60,10 @@ ASSIGNMENT_STATES = {
     SwarmAssignment.REJECTED: "rejected",
 }
 
+CAMERA_STALE_SEC = 3.0
+MAX_RECORDING_BYTES = 512 * 1024 * 1024
+FOLDER_PICKER_TIMEOUT_SEC = 300
+
 
 @dataclass
 class HttpCommand:
@@ -63,6 +71,17 @@ class HttpCommand:
     payload: dict
     completed: threading.Event = field(default_factory=threading.Event)
     result: dict = field(default_factory=dict)
+
+
+@dataclass
+class ServerVideoRecording:
+    final_path: Path
+    temporary_path: Path
+    writer: object = None
+    frame_size: tuple = ()
+    frame_count: int = 0
+    last_frame_at: float = 0.0
+    error_message: str = ""
 
 
 class DashboardNode(Node):
@@ -88,9 +107,28 @@ class DashboardNode(Node):
                 self.declare_parameter("camera_rate_hz", self._dashboard_rate_hz).value
             ),
         )
+        self._recording_rate_hz = max(
+            1.0, float(self.declare_parameter("recording_rate_hz", 30.0).value)
+        )
+        self._photo_save_dir = Path(
+            str(
+                self.declare_parameter(
+                    "photo_save_dir", str(Path.home() / "drone_dashboard_photos")
+                ).value
+            )
+        ).expanduser()
+        self._record_save_dir = Path(
+            str(
+                self.declare_parameter(
+                    "record_save_dir", str(Path.home() / "drone_dashboard_recordings")
+                ).value
+            )
+        ).expanduser()
         self._web_root = Path(get_package_share_directory("drone_dashboard")) / "web"
         self._callback_group = ReentrantCallbackGroup()
         self._lock = threading.Lock()
+        self._camera_lock = threading.Lock()
+        self._recording_lock = threading.Lock()
         self._requests = queue.Queue()
         self._state = self._empty_state()
         self._sensor_subscriptions = {}
@@ -99,6 +137,8 @@ class DashboardNode(Node):
         self._paths = {}
         self._camera_frames = {}
         self._last_camera_encode = {}
+        self._camera_encoding = set()
+        self._server_video_recordings = {}
 
         state_qos = QoSProfile(depth=1)
         state_qos.reliability = ReliabilityPolicy.RELIABLE
@@ -187,16 +227,212 @@ class DashboardNode(Node):
 
     def snapshot(self):
         with self._lock:
-            snapshot = json.loads(json.dumps(self._state))
-            snapshot["telemetry"] = json.loads(json.dumps(self._telemetry))
-            snapshot["motion"] = json.loads(json.dumps(self._motion))
-            snapshot["paths"] = json.loads(json.dumps(self._paths))
-            snapshot["camera_drones"] = sorted(self._camera_frames)
+            # Callbacks replace values; copy only the containers they mutate.
+            # JSON serialization belongs outside the callback lock.
+            snapshot = dict(self._state)
+            snapshot["telemetry"] = dict(self._telemetry)
+            snapshot["motion"] = dict(self._motion)
+            snapshot["paths"] = {key: dict(value) for key, value in self._paths.items()}
+        now = time.monotonic()
+        with self._camera_lock:
+            snapshot["camera_drones"] = sorted(
+                key for key, (received_at, _) in self._camera_frames.items()
+                if now - received_at <= CAMERA_STALE_SEC
+            )
         return snapshot
 
     def camera_frame(self, drone_id: str):
-        with self._lock:
-            return self._camera_frames.get(drone_id)
+        with self._camera_lock:
+            frame = self._camera_frames.get(drone_id)
+            if frame is None or time.monotonic() - frame[0] > CAMERA_STALE_SEC:
+                return None
+            return frame[1]
+
+    def save_camera_snapshot(self, drone_id: str):
+        """Save the most recent non-stale JPEG frame for one drone."""
+        if not DashboardNode._valid_drone_id(drone_id):
+            raise ValueError("invalid drone id")
+
+        frame = DashboardNode.camera_frame(self, drone_id)
+        if frame is None:
+            return None
+
+        drone_dir = self._photo_save_dir / drone_id
+        drone_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"snapshot_{timestamp}.jpg"
+        final_path = drone_dir / filename
+        temporary_path = drone_dir / f".{filename}.tmp"
+        try:
+            temporary_path.write_bytes(frame)
+            temporary_path.replace(final_path)
+        except Exception:
+            temporary_path.unlink(missing_ok=True)
+            raise
+        return final_path
+
+    def configure_media_directory(self, kind: str, directory: str):
+        """Create and select a server-side media directory for browser fallbacks."""
+        if kind not in {"photo", "record"}:
+            raise ValueError("media kind must be 'photo' or 'record'")
+        selected_directory = Path(str(directory)).expanduser()
+        if not selected_directory.is_absolute():
+            raise ValueError("media directory must be an absolute path")
+        selected_directory.mkdir(parents=True, exist_ok=True)
+        if kind == "photo":
+            self._photo_save_dir = selected_directory
+        else:
+            self._record_save_dir = selected_directory
+        self.get_logger().info(f"Dashboard {kind} storage: {selected_directory}")
+        return selected_directory
+
+    def pick_media_directory(self, kind: str):
+        """Open the dashboard host's native folder picker and select storage."""
+        if kind not in {"photo", "record"}:
+            raise ValueError("media kind must be 'photo' or 'record'")
+        title = "Choose snapshot folder" if kind == "photo" else "Choose recording folder"
+        picker = shutil.which("zenity")
+        if picker:
+            command = [picker, "--file-selection", "--directory", f"--title={title}"]
+        else:
+            picker = shutil.which("kdialog")
+            if not picker:
+                raise RuntimeError("no native folder picker found; install zenity or kdialog")
+            command = [picker, "--getexistingdirectory", str(Path.home()), "--title", title]
+
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=FOLDER_PICKER_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired as exception:
+            raise RuntimeError("folder selection timed out") from exception
+        if result.returncode == 1:
+            return None
+        if result.returncode != 0:
+            reason = result.stderr.strip() or f"folder picker exited with code {result.returncode}"
+            raise RuntimeError(reason)
+        selected_directory = result.stdout.strip()
+        if not selected_directory:
+            return None
+        return DashboardNode.configure_media_directory(self, kind, selected_directory)
+
+    def start_server_recording(self, drone_id: str):
+        """Start recording decoded ROS camera frames for one drone."""
+        if not DashboardNode._valid_drone_id(drone_id):
+            raise ValueError("invalid drone id")
+        if DashboardNode.camera_frame(self, drone_id) is None:
+            raise ValueError("camera frame unavailable or stale")
+
+        with self._recording_lock:
+            if drone_id in self._server_video_recordings:
+                raise ValueError(f"{drone_id} recording is already active")
+            drone_dir = self._record_save_dir / drone_id
+            drone_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            filename = f"recording_{timestamp}.avi"
+            self._server_video_recordings[drone_id] = ServerVideoRecording(
+                final_path=drone_dir / filename,
+                temporary_path=drone_dir / f".{filename}.tmp.avi",
+            )
+        self.get_logger().info(f"Started {drone_id} server recording")
+
+    def stop_server_recording(self, drone_id: str):
+        """Stop one server recording and atomically publish the AVI file."""
+        with self._recording_lock:
+            recording = self._server_video_recordings.pop(drone_id, None)
+            if recording is None:
+                raise ValueError(f"{drone_id} recording is not active")
+            if recording.writer is not None:
+                recording.writer.release()
+
+        if recording.error_message:
+            recording.temporary_path.unlink(missing_ok=True)
+            raise RuntimeError(recording.error_message)
+        if recording.frame_count == 0 or not recording.temporary_path.exists():
+            recording.temporary_path.unlink(missing_ok=True)
+            raise ValueError("recording did not receive camera frames")
+        recording.temporary_path.replace(recording.final_path)
+        self.get_logger().info(
+            f"Saved {drone_id} recording ({recording.frame_count} frames): "
+            f"{recording.final_path}"
+        )
+        return recording.final_path
+
+    def _record_camera_frame(self, drone_id: str, image, now: float):
+        if not hasattr(self, "_server_video_recordings"):
+            return
+        with self._recording_lock:
+            recording = self._server_video_recordings.get(drone_id)
+            if recording is None or recording.error_message:
+                return
+            if now - recording.last_frame_at < 1.0 / self._recording_rate_hz:
+                return
+            try:
+                frame = image
+                if frame.ndim == 2:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                height, width = frame.shape[:2]
+                if recording.writer is None:
+                    fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+                    recording.writer = cv2.VideoWriter(
+                        str(recording.temporary_path),
+                        fourcc,
+                        self._recording_rate_hz,
+                        (width, height),
+                    )
+                    if not recording.writer.isOpened():
+                        recording.writer.release()
+                        recording.writer = None
+                        raise RuntimeError("OpenCV could not open the MJPG video writer")
+                    recording.frame_size = (width, height)
+                if recording.frame_size != (width, height):
+                    frame = cv2.resize(frame, recording.frame_size)
+                recording.writer.write(frame)
+                recording.frame_count += 1
+                recording.last_frame_at = now
+            except (RuntimeError, cv2.error) as exception:
+                recording.error_message = str(exception)
+                if recording.writer is not None:
+                    recording.writer.release()
+                    recording.writer = None
+                self.get_logger().error(
+                    f"Cannot record {drone_id} camera: {recording.error_message}"
+                )
+
+    def save_recording(self, drone_id: str, content: bytes):
+        """Save a browser-recorded WebM file on the dashboard host."""
+        if not DashboardNode._valid_drone_id(drone_id):
+            raise ValueError("invalid drone id")
+        if not content:
+            raise ValueError("recording is empty")
+
+        drone_dir = self._record_save_dir / drone_id
+        drone_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"recording_{timestamp}.webm"
+        final_path = drone_dir / filename
+        temporary_path = drone_dir / f".{filename}.tmp"
+        try:
+            temporary_path.write_bytes(content)
+            temporary_path.replace(final_path)
+        except Exception:
+            temporary_path.unlink(missing_ok=True)
+            raise
+        self.get_logger().info(f"Saved {drone_id} recording: {final_path}")
+        return final_path
+
+    @staticmethod
+    def _valid_drone_id(drone_id: str):
+        return (
+            bool(drone_id)
+            and drone_id not in {".", ".."}
+            and "/" not in drone_id
+            and "\\" not in drone_id
+        )
 
     def _on_swarm_state(self, message: SwarmState):
         for drone in message.drones:
@@ -283,21 +519,29 @@ class DashboardNode(Node):
 
     def _on_camera(self, drone_id: str, message: Image):
         now = time.monotonic()
-        if now - self._last_camera_encode.get(drone_id, 0.0) < 1.0 / self._camera_rate_hz:
-            return
+        with self._camera_lock:
+            if drone_id in self._camera_encoding:
+                return
+            if now - self._last_camera_encode.get(drone_id, 0.0) < 1.0 / self._camera_rate_hz:
+                return
+            self._camera_encoding.add(drone_id)
+            self._last_camera_encode[drone_id] = now
         try:
             image = self._decode_image(message)
+            DashboardNode._record_camera_frame(self, drone_id, image, now)
             encoded, jpeg = cv2.imencode(
                 ".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality]
             )
             if not encoded:
                 return
+            frame = jpeg.tobytes()
+            with self._camera_lock:
+                self._camera_frames[drone_id] = (now, frame)
         except (ValueError, cv2.error) as exception:
             self.get_logger().warning(f"Cannot encode {drone_id} camera: {exception}")
-            return
-        with self._lock:
-            self._camera_frames[drone_id] = jpeg.tobytes()
-            self._last_camera_encode[drone_id] = now
+        finally:
+            with self._camera_lock:
+                self._camera_encoding.discard(drone_id)
 
     @staticmethod
     def _decode_image(message: Image):
@@ -593,6 +837,15 @@ class DashboardNode(Node):
         }
 
     def destroy_node(self):
+        with self._recording_lock:
+            active_recordings = list(self._server_video_recordings)
+        for drone_id in active_recordings:
+            try:
+                self.stop_server_recording(drone_id)
+            except (OSError, RuntimeError, ValueError) as exception:
+                self.get_logger().warning(
+                    f"Could not finalize {drone_id} recording during shutdown: {exception}"
+                )
         self._http_server.shutdown()
         self._http_server.server_close()
         self._http_thread.join(timeout=2.0)
@@ -613,11 +866,17 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             drone_id = path[len("/api/camera/") : -len(".jpg")]
             frame = self.server.dashboard.camera_frame(drone_id)
             if frame is None:
-                self.send_error(HTTPStatus.NOT_FOUND, "camera frame unavailable")
+                self._send_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"ok": False, "message": "camera frame unavailable or stale"},
+                )
                 return
             self._send_bytes(HTTPStatus.OK, "image/jpeg", frame, no_cache=True)
             return
-        files = {"/": "index.html", "/app.js": "app.js", "/styles.css": "styles.css"}
+        files = {
+            "/": "index.html", "/app.js": "app.js",
+            "/polling.js": "polling.js", "/styles.css": "styles.css",
+        }
         filename = files.get(path)
         if filename is None:
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -632,7 +891,142 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self):
-        path = urlparse(self.path).path
+        path = unquote(urlparse(self.path).path)
+        snapshot_prefix = "/api/camera/"
+        snapshot_suffix = "/snapshot"
+        if path.startswith(snapshot_prefix) and path.endswith(snapshot_suffix):
+            drone_id = path[len(snapshot_prefix) : -len(snapshot_suffix)]
+            try:
+                saved_path = self.server.dashboard.save_camera_snapshot(drone_id)
+            except (OSError, ValueError) as exception:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"ok": False, "message": f"snapshot could not be saved: {exception}"},
+                )
+                return
+            if saved_path is None:
+                self._send_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"ok": False, "message": "camera frame unavailable or stale"},
+                )
+                return
+            relative_path = saved_path.relative_to(self.server.dashboard._photo_save_dir)
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "message": f"Snapshot saved: {relative_path}",
+                    "path": str(saved_path),
+                },
+            )
+            return
+        recording_start_suffix = "/recording/start"
+        recording_stop_suffix = "/recording/stop"
+        if path.startswith(snapshot_prefix) and path.endswith(recording_start_suffix):
+            drone_id = path[len(snapshot_prefix) : -len(recording_start_suffix)]
+            try:
+                self.server.dashboard.start_server_recording(drone_id)
+            except (OSError, RuntimeError, ValueError) as exception:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {"ok": False, "message": f"recording could not start: {exception}"},
+                )
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                {"ok": True, "message": f"Recording started: {drone_id}"},
+            )
+            return
+        if path.startswith(snapshot_prefix) and path.endswith(recording_stop_suffix):
+            drone_id = path[len(snapshot_prefix) : -len(recording_stop_suffix)]
+            try:
+                saved_path = self.server.dashboard.stop_server_recording(drone_id)
+            except (OSError, RuntimeError, ValueError) as exception:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {"ok": False, "message": f"recording could not stop: {exception}"},
+                )
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "message": f"Recording saved: {saved_path}",
+                    "path": str(saved_path),
+                },
+            )
+            return
+        recording_suffix = "/recording"
+        if path.startswith(snapshot_prefix) and path.endswith(recording_suffix):
+            drone_id = path[len(snapshot_prefix) : -len(recording_suffix)]
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > MAX_RECORDING_BYTES:
+                    raise ValueError("invalid recording size")
+                content = self.rfile.read(length)
+                if len(content) != length:
+                    raise ValueError("incomplete recording upload")
+                saved_path = self.server.dashboard.save_recording(drone_id, content)
+            except (OSError, ValueError) as exception:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"ok": False, "message": f"recording could not be saved: {exception}"},
+                )
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "message": f"Recording saved: {saved_path}",
+                    "path": str(saved_path),
+                },
+            )
+            return
+        if path == "/api/storage/pick":
+            try:
+                payload = self._read_json_body()
+                selected_directory = self.server.dashboard.pick_media_directory(
+                    payload.get("kind", "")
+                )
+            except (OSError, RuntimeError, TypeError, ValueError) as exception:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"ok": False, "message": f"folder picker failed: {exception}"},
+                )
+                return
+            if selected_directory is None:
+                self._send_json(
+                    HTTPStatus.OK,
+                    {"ok": True, "cancelled": True, "message": "Folder selection cancelled"},
+                )
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "cancelled": False,
+                    "message": f"Storage directory ready: {selected_directory}",
+                    "path": str(selected_directory),
+                },
+            )
+            return
+        if path == "/api/storage":
+            try:
+                payload = self._read_json_body()
+                selected_directory = self.server.dashboard.configure_media_directory(
+                    payload.get("kind", ""), payload.get("path", "")
+                )
+            except (OSError, TypeError, ValueError, json.JSONDecodeError) as exception:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"ok": False, "message": f"invalid storage directory: {exception}"},
+                )
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                {"ok": True, "message": f"Storage directory ready: {selected_directory}"},
+            )
+            return
         routes = {
             "/api/targets": "add_target",
             "/api/targets/remove": "remove_target",
@@ -646,10 +1040,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > 65536:
-                raise ValueError("invalid request size")
-            payload = json.loads(self.rfile.read(length))
+            payload = self._read_json_body()
             if not isinstance(payload, dict):
                 raise ValueError("JSON body must be an object")
             status, response = self.server.dashboard.submit(kind, payload)
@@ -660,6 +1051,15 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 {"ok": False, "message": f"invalid request: {exception}"},
             )
 
+    def _read_json_body(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0 or length > 65536:
+            raise ValueError("invalid request size")
+        payload = json.loads(self.rfile.read(length))
+        if not isinstance(payload, dict):
+            raise ValueError("JSON body must be an object")
+        return payload
+
     def _send_json(self, status, payload):
         self._send_bytes(
             status,
@@ -669,13 +1069,17 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         )
 
     def _send_bytes(self, status, content_type, content, no_cache):
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(content)))
-        if no_cache:
-            self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(content)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            if no_cache:
+                self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(content)
+        except (BrokenPipeError, ConnectionResetError):
+            # Browser navigation and request timeouts can close the connection.
+            self.close_connection = True
 
     def log_message(self, format_string, *args):
         if args and str(args[1]).startswith("4"):
