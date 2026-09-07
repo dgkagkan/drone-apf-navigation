@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+source_dir="${DRONE_DEV_SOURCE:-/workspace/src/drone-apf-navigation}"
+
+if [[ ! -d "${source_dir}" ]]; then
+    echo "Development source directory does not exist: ${source_dir}" >&2
+    exit 1
+fi
+
+set +u
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+source /opt/px4_msgs_ws/install/setup.bash
+set -u
+
+mkdir -p /workspace/build /workspace/install /workspace/log
+colcon --log-base /workspace/log build \
+    --base-paths "${source_dir}" \
+    --build-base /workspace/build \
+    --install-base /workspace/install \
+    --symlink-install \
+    --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo

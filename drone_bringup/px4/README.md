@@ -27,6 +27,10 @@ The active PX4 checkout on this machine already contains the patch. Its
 instance. Disarming no longer recharges the simulated battery; restarting the
 battery simulator applies `SIM_BAT_INIT_PCT`.
 
+`0003-gazebo-headless-rendering.patch` adds Gazebo's EGL headless-rendering
+flag whenever PX4 starts with `HEADLESS=1`. This keeps camera and GPU LiDAR
+sensors active in the Docker simulation without requiring an X server.
+
 ## `4030_gz_standard_vtol_lidar`
 
 Custom PX4 SITL airframe that spawns the `standard_vtol_lidar` gz model

@@ -1,0 +1,15 @@
+services:
+  swarm-sim:
+    environment:
+      DRONE_DEV_SOURCE: /workspace/src/drone-apf-navigation
+      DRONE_DEV_BUILD: ${DRONE_DEV_BUILD:-1}
+    volumes:
+      - .:/workspace/src/drone-apf-navigation
+      - drone-dev-build:/workspace/build
+      - drone-dev-install:/workspace/install
+      - drone-dev-log:/workspace/log
+
+volumes:
+  drone-dev-build:
+  drone-dev-install:
+  drone-dev-log:

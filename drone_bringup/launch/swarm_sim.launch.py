@@ -116,6 +116,10 @@ def _launch_setup(context):
     operator_terminal = LaunchConfiguration("operator_terminal").perform(context)
     use_dashboard = LaunchConfiguration("use_dashboard").perform(context)
     open_dashboard = LaunchConfiguration("open_dashboard").perform(context)
+    dashboard_host = LaunchConfiguration("dashboard_host")
+    dashboard_port = LaunchConfiguration("dashboard_port")
+    dashboard_rate_hz = LaunchConfiguration("dashboard_rate_hz")
+    preconfigure_media_storage = LaunchConfiguration("preconfigure_media_storage")
     photo_save_dir = LaunchConfiguration("photo_save_dir")
     record_save_dir = LaunchConfiguration("record_save_dir")
     use_rviz = LaunchConfiguration("use_rviz").perform(context).lower() in ("1", "true")
@@ -371,6 +375,10 @@ def _launch_setup(context):
                 "operator_terminal": operator_terminal,
                 "use_dashboard": use_dashboard,
                 "open_dashboard": open_dashboard,
+                "dashboard_host": dashboard_host,
+                "dashboard_port": dashboard_port,
+                "dashboard_rate_hz": dashboard_rate_hz,
+                "preconfigure_media_storage": preconfigure_media_storage,
                 "photo_save_dir": photo_save_dir,
                 "record_save_dir": record_save_dir,
             }.items(),
@@ -439,6 +447,10 @@ def generate_launch_description():
         DeclareLaunchArgument("operator_terminal", default_value="false"),
         DeclareLaunchArgument("use_dashboard", default_value="true"),
         DeclareLaunchArgument("open_dashboard", default_value="true"),
+        DeclareLaunchArgument("dashboard_host", default_value="127.0.0.1"),
+        DeclareLaunchArgument("dashboard_port", default_value="8765"),
+        DeclareLaunchArgument("dashboard_rate_hz", default_value="60.0"),
+        DeclareLaunchArgument("preconfigure_media_storage", default_value="false"),
         DeclareLaunchArgument(
             "photo_save_dir",
             default_value=os.path.join(home, "drone_dashboard_photos"),

@@ -89,187 +89,187 @@
         - radius from the map center: at most 2 km
       The three model types are repeated thirty times each.
     -->
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_01</name><pose>-595.30 693.17 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_01</name><pose>-877.12 635.13 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_01</name><pose>1762.29 -735.77 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_02</name><pose>-1084.00 -1014.79 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_02</name><pose>638.60 1540.76 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_02</name><pose>747.38 -933.72 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_03</name><pose>-1766.21 -28.85 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_03</name><pose>864.42 -383.96 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_03</name><pose>-1642.16 1044.95 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_04</name><pose>1002.07 -92.44 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_04</name><pose>1769.74 -79.04 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_04</name><pose>760.29 1383.68 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_05</name><pose>-1378.45 -592.18 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_05</name><pose>-1430.78 248.67 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_05</name><pose>-195.15 -1955.62 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_06</name><pose>392.50 1793.60 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_06</name><pose>284.17 890.01 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_06</name><pose>-1116.66 -155.98 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_07</name><pose>-1067.47 1651.32 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_07</name><pose>1627.56 -235.21 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_07</name><pose>882.23 -1187.98 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_08</name><pose>327.03 1647.84 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_08</name><pose>463.33 -381.90 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_08</name><pose>379.63 -1230.35 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_09</name><pose>595.86 942.69 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_09</name><pose>-471.43 1013.47 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_09</name><pose>1089.59 1245.14 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_10</name><pose>-1137.01 328.80 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_10</name><pose>-1273.48 -476.55 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_10</name><pose>153.79 -300.02 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_11</name><pose>-1664.55 771.57 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_11</name><pose>-649.14 -1735.75 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_11</name><pose>1687.15 380.83 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_12</name><pose>1648.96 627.00 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_12</name><pose>-493.47 1433.56 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_12</name><pose>-736.38 458.17 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_13</name><pose>13.59 -284.19 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_13</name><pose>729.14 -1594.02 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_13</name><pose>-664.14 -135.68 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_14</name><pose>-839.55 1118.86 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_14</name><pose>526.39 -1736.89 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_14</name><pose>-778.41 -1667.96 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_15</name><pose>-467.10 -1.47 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_15</name><pose>440.70 -792.69 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_15</name><pose>1321.71 850.41 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_16</name><pose>70.24 -1467.10 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_16</name><pose>-1833.30 186.76 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_16</name><pose>-602.98 833.62 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_17</name><pose>-1888.56 -339.18 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_17</name><pose>435.76 1454.68 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_17</name><pose>925.71 1475.06 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_18</name><pose>-634.26 -977.22 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_18</name><pose>1311.69 397.30 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_18</name><pose>-476.89 -906.23 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_19</name><pose>760.96 -90.92 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_19</name><pose>1631.99 -638.28 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_19</name><pose>878.73 364.67 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_20</name><pose>1239.32 -1176.64 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_20</name><pose>1589.15 -1014.82 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_20</name><pose>-1156.38 1003.68 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_21</name><pose>-1399.86 1312.03 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_21</name><pose>-1617.81 437.44 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_21</name><pose>831.61 37.31 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_22</name><pose>36.28 -1196.94 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_22</name><pose>-886.13 213.16 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_22</name><pose>1514.65 1166.12 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_23</name><pose>1047.00 395.86 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_23</name><pose>702.54 215.06 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_23</name><pose>1730.90 214.38 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_24</name><pose>317.14 512.93 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_24</name><pose>-1605.96 -631.61 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_24</name><pose>93.35 1261.89 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_25</name><pose>-390.85 -146.23 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_25</name><pose>1386.19 697.43 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_25</name><pose>-87.72 -549.55 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_26</name><pose>-670.14 -416.94 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_26</name><pose>815.64 -527.83 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_26</name><pose>100.35 1530.26 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_27</name><pose>-974.74 -436.81 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_27</name><pose>-1487.50 516.61 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_27</name><pose>1896.41 -527.97 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_28</name><pose>-100.24 -974.37 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_28</name><pose>-1574.13 -191.40 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_28</name><pose>364.54 726.91 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_29</name><pose>63.65 -856.12 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_29</name><pose>1281.12 -836.64 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_29</name><pose>333.35 -1493.98 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_30</name><pose>-482.85 -1265.11 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_30</name><pose>108.76 -10.69 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_30</name><pose>-820.73 -637.92 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_01</name><pose>-595.30 693.17 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_01</name><pose>-877.12 635.13 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_01</name><pose>1762.29 -735.77 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_02</name><pose>-1084.00 -1014.79 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_02</name><pose>638.60 1540.76 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_02</name><pose>747.38 -933.72 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_03</name><pose>-1766.21 -28.85 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_03</name><pose>864.42 -383.96 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_03</name><pose>-1642.16 1044.95 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_04</name><pose>1002.07 -92.44 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_04</name><pose>1769.74 -79.04 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_04</name><pose>760.29 1383.68 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_05</name><pose>-1378.45 -592.18 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_05</name><pose>-1430.78 248.67 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_05</name><pose>-195.15 -1955.62 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_06</name><pose>392.50 1793.60 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_06</name><pose>284.17 890.01 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_06</name><pose>-1116.66 -155.98 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_07</name><pose>-1067.47 1651.32 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_07</name><pose>1627.56 -235.21 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_07</name><pose>882.23 -1187.98 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_08</name><pose>327.03 1647.84 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_08</name><pose>463.33 -381.90 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_08</name><pose>379.63 -1230.35 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_09</name><pose>595.86 942.69 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_09</name><pose>-471.43 1013.47 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_09</name><pose>1089.59 1245.14 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_10</name><pose>-1137.01 328.80 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_10</name><pose>-1273.48 -476.55 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_10</name><pose>153.79 -300.02 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_11</name><pose>-1664.55 771.57 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_11</name><pose>-649.14 -1735.75 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_11</name><pose>1687.15 380.83 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_12</name><pose>1648.96 627.00 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_12</name><pose>-493.47 1433.56 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_12</name><pose>-736.38 458.17 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_13</name><pose>13.59 -284.19 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_13</name><pose>729.14 -1594.02 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_13</name><pose>-664.14 -135.68 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_14</name><pose>-839.55 1118.86 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_14</name><pose>526.39 -1736.89 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_14</name><pose>-778.41 -1667.96 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_15</name><pose>-467.10 -1.47 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_15</name><pose>440.70 -792.69 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_15</name><pose>1321.71 850.41 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_16</name><pose>70.24 -1467.10 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_16</name><pose>-1833.30 186.76 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_16</name><pose>-602.98 833.62 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_17</name><pose>-1888.56 -339.18 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_17</name><pose>435.76 1454.68 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_17</name><pose>925.71 1475.06 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_18</name><pose>-634.26 -977.22 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_18</name><pose>1311.69 397.30 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_18</name><pose>-476.89 -906.23 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_19</name><pose>760.96 -90.92 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_19</name><pose>1631.99 -638.28 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_19</name><pose>878.73 364.67 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_20</name><pose>1239.32 -1176.64 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_20</name><pose>1589.15 -1014.82 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_20</name><pose>-1156.38 1003.68 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_21</name><pose>-1399.86 1312.03 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_21</name><pose>-1617.81 437.44 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_21</name><pose>831.61 37.31 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_22</name><pose>36.28 -1196.94 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_22</name><pose>-886.13 213.16 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_22</name><pose>1514.65 1166.12 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_23</name><pose>1047.00 395.86 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_23</name><pose>702.54 215.06 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_23</name><pose>1730.90 214.38 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_24</name><pose>317.14 512.93 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_24</name><pose>-1605.96 -631.61 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_24</name><pose>93.35 1261.89 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_25</name><pose>-390.85 -146.23 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_25</name><pose>1386.19 697.43 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_25</name><pose>-87.72 -549.55 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_26</name><pose>-670.14 -416.94 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_26</name><pose>815.64 -527.83 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_26</name><pose>100.35 1530.26 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_27</name><pose>-974.74 -436.81 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_27</name><pose>-1487.50 516.61 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_27</name><pose>1896.41 -527.97 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_28</name><pose>-100.24 -974.37 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_28</name><pose>-1574.13 -191.40 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_28</name><pose>364.54 726.91 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_29</name><pose>63.65 -856.12 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_29</name><pose>1281.12 -836.64 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_29</name><pose>333.35 -1493.98 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_30</name><pose>-482.85 -1265.11 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_30</name><pose>108.76 -10.69 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_30</name><pose>-820.73 -637.92 0 0 0 0</pose></include>
 
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_31</name><pose>17.36 98.48 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_32</name><pose>-98.48 17.36 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_33</name><pose>-17.36 -98.48 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_34</name><pose>249.66 13.08 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_35</name><pose>182.84 170.50 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_36</name><pose>30.47 248.14 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_37</name><pose>-136.16 209.67 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_38</name><pose>-239.08 73.09 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_39</name><pose>-230.13 -97.68 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_40</name><pose>-113.50 -222.75 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_41</name><pose>199.66 -150.45 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_42</name><pose>397.81 41.81 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_43</name><pose>323.61 235.11 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_44</name><pose>162.69 365.42 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_45</name><pose>-41.81 397.81 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_46</name><pose>-235.11 323.61 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_47</name><pose>-365.42 162.69 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_48</name><pose>-277.86 -287.74 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_49</name><pose>-96.77 -388.12 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_50</name><pose>331.62 -223.68 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_51</name><pose>543.23 86.04 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_52</name><pose>481.04 266.65 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_53</name><pose>104.94 539.89 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_54</name><pose>-86.04 543.23 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_55</name><pose>-266.65 481.04 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_56</name><pose>-415.09 360.83 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_57</name><pose>-513.47 197.10 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_58</name><pose>-481.04 -266.65 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_59</name><pose>-360.83 -415.09 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/radio tower/3</uri><name>radio_tower_60</name><pose>86.04 -543.23 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_31</name><pose>266.65 -481.04 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_32</name><pose>513.47 -197.10 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_33</name><pose>593.63 370.94 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_34</name><pose>216.31 665.74 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_35</name><pose>-24.43 699.57 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_36</name><pose>-262.22 649.03 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_37</name><pose>-468.39 520.20 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_38</name><pose>-618.06 328.63 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_39</name><pose>-693.19 97.42 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_40</name><pose>-520.20 -468.39 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_41</name><pose>-328.63 -618.06 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_42</name><pose>-97.42 -693.19 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_43</name><pose>145.54 -684.70 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_44</name><pose>370.94 -593.63 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_45</name><pose>618.06 -328.63 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_46</name><pose>696.28 487.54 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_47</name><pose>601.04 601.04 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_48</name><pose>74.08 846.77 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_49</name><pose>-74.08 846.77 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_50</name><pose>-220.00 821.04 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_51</name><pose>-359.23 770.36 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_52</name><pose>-846.77 74.08 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_53</name><pose>-846.77 -74.08 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_54</name><pose>-821.04 -220.00 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_55</name><pose>-601.04 -601.04 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_56</name><pose>-487.54 -696.28 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_57</name><pose>-359.23 -770.36 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_58</name><pose>-220.00 -821.04 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_59</name><pose>220.00 -821.04 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/tower crane/2</uri><name>tower_crane_60</name><pose>601.04 -601.04 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_31</name><pose>821.04 -220.00 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_32</name><pose>788.01 615.66 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_33</name><pose>669.13 743.14 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_34</name><pose>34.90 999.39 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_35</name><pose>-139.17 990.27 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_36</name><pose>-309.02 951.06 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_37</name><pose>-927.18 374.61 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_38</name><pose>-999.39 34.90 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_39</name><pose>-669.13 -743.14 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_40</name><pose>139.17 -990.27 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_41</name><pose>309.02 -951.06 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_42</name><pose>615.66 -788.01 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_43</name><pose>743.14 -669.13 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_44</name><pose>990.27 139.17 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_45</name><pose>985.74 592.29 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_46</name><pose>867.92 754.47 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_47</name><pose>374.40 1087.35 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_48</name><pose>179.90 1135.84 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_49</name><pose>-20.07 1149.82 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_50</name><pose>-219.43 1128.87 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_51</name><pose>-754.47 867.92 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_52</name><pose>-1005.81 557.53 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_53</name><pose>-1135.84 179.90 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_54</name><pose>-985.74 -592.29 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_55</name><pose>-374.40 -1087.35 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_56</name><pose>-179.90 -1135.84 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_57</name><pose>219.43 -1128.87 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_58</name><pose>412.12 -1073.62 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_59</name><pose>592.29 -985.74 0 0 0 0</pose></include>
-    <include><uri>file:///home/dimitris-gkagkanakis/.gz/fuel/fuel.gazebosim.org/openrobotics/models/water tower/3</uri><name>water_tower_60</name><pose>893.72 -723.72 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_31</name><pose>17.36 98.48 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_32</name><pose>-98.48 17.36 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_33</name><pose>-17.36 -98.48 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_34</name><pose>249.66 13.08 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_35</name><pose>182.84 170.50 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_36</name><pose>30.47 248.14 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_37</name><pose>-136.16 209.67 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_38</name><pose>-239.08 73.09 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_39</name><pose>-230.13 -97.68 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_40</name><pose>-113.50 -222.75 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_41</name><pose>199.66 -150.45 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_42</name><pose>397.81 41.81 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_43</name><pose>323.61 235.11 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_44</name><pose>162.69 365.42 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_45</name><pose>-41.81 397.81 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_46</name><pose>-235.11 323.61 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_47</name><pose>-365.42 162.69 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_48</name><pose>-277.86 -287.74 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_49</name><pose>-96.77 -388.12 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_50</name><pose>331.62 -223.68 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_51</name><pose>543.23 86.04 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_52</name><pose>481.04 266.65 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_53</name><pose>104.94 539.89 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_54</name><pose>-86.04 543.23 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_55</name><pose>-266.65 481.04 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_56</name><pose>-415.09 360.83 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_57</name><pose>-513.47 197.10 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_58</name><pose>-481.04 -266.65 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_59</name><pose>-360.83 -415.09 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20Tower</uri><name>radio_tower_60</name><pose>86.04 -543.23 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_31</name><pose>266.65 -481.04 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_32</name><pose>513.47 -197.10 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_33</name><pose>593.63 370.94 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_34</name><pose>216.31 665.74 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_35</name><pose>-24.43 699.57 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_36</name><pose>-262.22 649.03 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_37</name><pose>-468.39 520.20 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_38</name><pose>-618.06 328.63 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_39</name><pose>-693.19 97.42 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_40</name><pose>-520.20 -468.39 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_41</name><pose>-328.63 -618.06 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_42</name><pose>-97.42 -693.19 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_43</name><pose>145.54 -684.70 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_44</name><pose>370.94 -593.63 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_45</name><pose>618.06 -328.63 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_46</name><pose>696.28 487.54 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_47</name><pose>601.04 601.04 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_48</name><pose>74.08 846.77 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_49</name><pose>-74.08 846.77 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_50</name><pose>-220.00 821.04 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_51</name><pose>-359.23 770.36 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_52</name><pose>-846.77 74.08 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_53</name><pose>-846.77 -74.08 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_54</name><pose>-821.04 -220.00 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_55</name><pose>-601.04 -601.04 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_56</name><pose>-487.54 -696.28 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_57</name><pose>-359.23 -770.36 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_58</name><pose>-220.00 -821.04 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_59</name><pose>220.00 -821.04 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20Crane</uri><name>tower_crane_60</name><pose>601.04 -601.04 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_31</name><pose>821.04 -220.00 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_32</name><pose>788.01 615.66 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_33</name><pose>669.13 743.14 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_34</name><pose>34.90 999.39 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_35</name><pose>-139.17 990.27 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_36</name><pose>-309.02 951.06 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_37</name><pose>-927.18 374.61 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_38</name><pose>-999.39 34.90 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_39</name><pose>-669.13 -743.14 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_40</name><pose>139.17 -990.27 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_41</name><pose>309.02 -951.06 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_42</name><pose>615.66 -788.01 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_43</name><pose>743.14 -669.13 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_44</name><pose>990.27 139.17 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_45</name><pose>985.74 592.29 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_46</name><pose>867.92 754.47 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_47</name><pose>374.40 1087.35 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_48</name><pose>179.90 1135.84 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_49</name><pose>-20.07 1149.82 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_50</name><pose>-219.43 1128.87 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_51</name><pose>-754.47 867.92 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_52</name><pose>-1005.81 557.53 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_53</name><pose>-1135.84 179.90 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_54</name><pose>-985.74 -592.29 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_55</name><pose>-374.40 -1087.35 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_56</name><pose>-179.90 -1135.84 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_57</name><pose>219.43 -1128.87 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_58</name><pose>412.12 -1073.62 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_59</name><pose>592.29 -985.74 0 0 0 0</pose></include>
+    <include><uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20Tower</uri><name>water_tower_60</name><pose>893.72 -723.72 0 0 0 0</pose></include>
 
     <light name='sun' type='directional'>
       <pose>0 0 10 0 0 0</pose>

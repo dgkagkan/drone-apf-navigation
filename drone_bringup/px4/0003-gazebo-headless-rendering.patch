@@ -1,0 +1,12 @@
+diff --git a/ROMFS/px4fmu_common/init.d-posix/px4-rc.gzsim b/ROMFS/px4fmu_common/init.d-posix/px4-rc.gzsim
+index 5cd5bdf19c..ebd3b86ef7 100644
+--- a/ROMFS/px4fmu_common/init.d-posix/px4-rc.gzsim
++++ b/ROMFS/px4fmu_common/init.d-posix/px4-rc.gzsim
+@@ -50 +50,6 @@
+-		${gz_command} ${gz_sub_command} --verbose=${GZ_VERBOSE:=1} -r -s "${PX4_GZ_WORLDS}/${PX4_GZ_WORLD}.sdf" &
++		gz_headless_rendering=
++		if [ -n "${HEADLESS}" ]; then
++			gz_headless_rendering="--headless-rendering"
++		fi
++
++		${gz_command} ${gz_sub_command} --verbose=${GZ_VERBOSE:=1} -r -s ${gz_headless_rendering} "${PX4_GZ_WORLDS}/${PX4_GZ_WORLD}.sdf" &

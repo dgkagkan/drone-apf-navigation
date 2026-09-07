@@ -124,6 +124,9 @@ class DashboardNode(Node):
                 ).value
             )
         ).expanduser()
+        self._preconfigure_media_storage = bool(
+            self.declare_parameter("preconfigure_media_storage", False).value
+        )
         self._web_root = Path(get_package_share_directory("drone_dashboard")) / "web"
         self._callback_group = ReentrantCallbackGroup()
         self._lock = threading.Lock()
@@ -861,6 +864,14 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         path = unquote(urlparse(self.path).path)
         if path == "/api/state":
             self._send_json(HTTPStatus.OK, self.server.dashboard.snapshot())
+            return
+        if path == "/api/storage":
+            dashboard = self.server.dashboard
+            payload = {"ok": True, "preconfigured": dashboard._preconfigure_media_storage}
+            if dashboard._preconfigure_media_storage:
+                payload["photo_path"] = str(dashboard._photo_save_dir)
+                payload["record_path"] = str(dashboard._record_save_dir)
+            self._send_json(HTTPStatus.OK, payload)
             return
         if path.startswith("/api/camera/") and path.endswith(".jpg"):
             drone_id = path[len("/api/camera/") : -len(".jpg")]

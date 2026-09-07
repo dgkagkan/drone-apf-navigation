@@ -1,0 +1,8 @@
+services:
+  swarm-sim:
+    environment:
+      LIBGL_ALWAYS_SOFTWARE: "0"
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - ${RENDER_GID:-109}

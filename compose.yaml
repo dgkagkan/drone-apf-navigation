@@ -1,0 +1,37 @@
+name: drone-apf-navigation
+
+services:
+  swarm-sim:
+    image: drone-apf-navigation:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        BUILD_JOBS: ${BUILD_JOBS:-2}
+    init: true
+    tty: true
+    stdin_open: true
+    stop_grace_period: 30s
+    shm_size: 2gb
+    environment:
+      LOCAL_UID: ${LOCAL_UID:-1000}
+      LOCAL_GID: ${LOCAL_GID:-1000}
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      DASHBOARD_PORT: 8765
+      DASHBOARD_RATE_HZ: ${DASHBOARD_RATE_HZ:-60.0}
+      DRONE_HEADLESS: ${DRONE_HEADLESS:-true}
+      DRONE_USE_RVIZ: ${DRONE_USE_RVIZ:-false}
+      DRONE_USE_MAPPING: ${DRONE_USE_MAPPING:-true}
+      DRONE_WORLD: ${DRONE_WORLD:-test}
+      LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-1}
+    ports:
+      - "${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:${DASHBOARD_PORT:-8765}:8765"
+    volumes:
+      - ${PHOTO_DIR:-./docker-data/photos}:/data/photos
+      - ${RECORD_DIR:-./docker-data/recordings}:/data/recordings
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8765/api/state"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 45s

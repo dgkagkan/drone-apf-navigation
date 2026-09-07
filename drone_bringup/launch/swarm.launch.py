@@ -28,6 +28,7 @@ def generate_launch_description():
     dashboard_host = LaunchConfiguration("dashboard_host")
     dashboard_port = LaunchConfiguration("dashboard_port")
     dashboard_rate_hz = LaunchConfiguration("dashboard_rate_hz")
+    preconfigure_media_storage = LaunchConfiguration("preconfigure_media_storage")
     photo_save_dir = LaunchConfiguration("photo_save_dir")
     record_save_dir = LaunchConfiguration("record_save_dir")
     default_config = PathJoinSubstitution([
@@ -49,6 +50,7 @@ def generate_launch_description():
         DeclareLaunchArgument("dashboard_host", default_value="127.0.0.1"),
         DeclareLaunchArgument("dashboard_port", default_value="8765"),
         DeclareLaunchArgument("dashboard_rate_hz", default_value="60.0"),
+        DeclareLaunchArgument("preconfigure_media_storage", default_value="false"),
         DeclareLaunchArgument(
             "photo_save_dir",
             default_value=PathJoinSubstitution([
@@ -91,6 +93,9 @@ def generate_launch_description():
                 "port": ParameterValue(dashboard_port, value_type=int),
                 "dashboard_rate_hz": ParameterValue(dashboard_rate_hz, value_type=float),
                 "camera_rate_hz": ParameterValue(dashboard_rate_hz, value_type=float),
+                "preconfigure_media_storage": ParameterValue(
+                    preconfigure_media_storage, value_type=bool
+                ),
                 "photo_save_dir": photo_save_dir,
                 "record_save_dir": record_save_dir,
             }],

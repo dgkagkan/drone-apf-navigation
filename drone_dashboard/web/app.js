@@ -413,6 +413,20 @@ function activateServerMediaDirectory(kind, path) {
   setMediaStorageStatus(kind, `Using server folder: ${path}`);
 }
 
+async function loadPreconfiguredMediaStorage() {
+  try {
+    const response = await fetch("/api/storage", { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok || !result.preconfigured) return;
+    activateServerMediaDirectory("photo", result.photo_path);
+    activateServerMediaDirectory("record", result.record_path);
+    document.getElementById("photo-server-path").value = result.photo_path;
+    document.getElementById("record-server-path").value = result.record_path;
+  } catch (error) {
+    // Manual folder selection remains available if startup discovery fails.
+  }
+}
+
 async function chooseServerMediaFolder(kind) {
   try {
     setMediaStorageStatus(kind, "Waiting for native folder selection...");
@@ -1031,6 +1045,7 @@ document.getElementById("map-center").onclick = () => { view = { x: 0, y: 0, met
 window.addEventListener("resize", resizeCanvas);
 
 resizeCanvas();
+loadPreconfiguredMediaStorage();
 const stopStatePolling = startPolling(refresh, DASHBOARD_INTERVAL_MS);
 window.addEventListener("pagehide", event => {
   if (event.persisted) return;

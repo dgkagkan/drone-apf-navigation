@@ -1,7 +1,12 @@
 .vscode/
+.env
 .venv/
 /build/
 /install/
 /log/
 /optuna_results
 __pycache__/
+docker-data/photos/*
+!docker-data/photos/.gitkeep
+docker-data/recordings/*
+!docker-data/recordings/.gitkeep
