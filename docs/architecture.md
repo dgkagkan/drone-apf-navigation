@@ -250,12 +250,15 @@ explicit `target_drone_ids` list. Each route executor ignores commands that do
 not contain its own ID. Only the selected drone's route is detached, its
 unfinished targets return to the pending buffer, and an auxiliary home route
 can run without cancelling other drones. HOME returns to the exact recorded
-spawn x/y at safe altitude, switches to multicopter for a 0.5 m precision
-approach, and then commands local LAND.
+spawn x/y at safe altitude, switches to multicopter for the configured precision
+approach, and then holds there. A normal operator HOME never commands LAND;
+only the separate low-battery RTH route lands automatically after reaching
+home.
 
 Gazebo camera images are bridged only on the simulation PC. The simulated
-camera is configured as 640x360 at 10 Hz, and the dashboard serves JPEG previews
-at up to 5 Hz. DDS sends image samples only to matched subscribers, so a remote
+camera is configured as 640x360 at 10 Hz. The dashboard request and encoding
+loop is configurable up to 60 Hz, but preview FPS remains limited by the camera
+source. DDS sends image samples only to matched subscribers, so a remote
 Raspberry Pi brain does not receive camera traffic unless a camera subscriber
 is deliberately started there.
 
