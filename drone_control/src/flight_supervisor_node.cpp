@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -112,6 +113,21 @@ private:
     message.command = command;
     message.param1 = parameter1;
     message.param2 = parameter2;
+    command_pub_->publish(message);
+  }
+
+  void sendLandCommand()
+  {
+    const auto unused = std::numeric_limits<float>::quiet_NaN();
+    VC message;
+    message.command = VC::VEHICLE_CMD_NAV_LAND;
+    message.param1 = unused;
+    message.param2 = unused;
+    message.param3 = unused;
+    message.param4 = unused;
+    message.param5 = std::numeric_limits<double>::quiet_NaN();
+    message.param6 = std::numeric_limits<double>::quiet_NaN();
+    message.param7 = unused;
     command_pub_->publish(message);
   }
 
@@ -276,7 +292,35 @@ private:
   void startManualLand()
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (operation_ != Operation::IDLE) return;
+    if (operation_ == Operation::LAND) {
+      RCLCPP_INFO(get_logger(), "LAND is already active");
+      return;
+    }
+
+    if (takeoff_goal_) {
+      auto result = std::make_shared<Takeoff::Result>();
+      result->success = false;
+      result->message = "takeoff preempted by LAND";
+      result->final_altitude_m = state_.position_enu.z;
+      if (takeoff_goal_->is_canceling()) {
+        takeoff_goal_->canceled(result);
+      } else if (takeoff_goal_->is_active()) {
+        takeoff_goal_->abort(result);
+      }
+    }
+    if (transition_goal_) {
+      auto result = std::make_shared<TransitionVtol::Result>();
+      result->success = false;
+      result->message = "VTOL transition preempted by LAND";
+      if (transition_goal_->is_canceling()) {
+        transition_goal_->canceled(result);
+      } else if (transition_goal_->is_active()) {
+        transition_goal_->abort(result);
+      }
+    }
+
+    takeoff_goal_.reset();
+    transition_goal_.reset();
     operation_ = Operation::LAND;
     manual_operation_ = true;
     arm_offboard_requested_ = false;
@@ -374,7 +418,9 @@ private:
     }
 
     if (!land_command_sent_) {
-      sendCommand(VC::VEHICLE_CMD_NAV_LAND);
+      // NaN positional fields request landing at the current position instead
+      // of supplying an explicit global landing point.
+      sendLandCommand();
       land_command_sent_ = true;
       land_started_at_ = now();
       RCLCPP_INFO(

@@ -213,6 +213,7 @@ private:
     bool battery_available_for_tasks {true};
     bool safety_excluded {false};
     bool return_home_active {false};
+    bool landing_active {false};
     uint8_t last_safety_event_state {SwarmDroneHeartbeat::BATTERY_STATE_UNKNOWN};
     std::string boot_id;
     std::string navigate_action;
@@ -254,6 +255,13 @@ private:
   {
     std::string drone_id;
     uint8_t battery_state {SwarmDroneHeartbeat::BATTERY_STATE_UNKNOWN};
+  };
+
+  struct RouteCancellation
+  {
+    uint64_t mission_id {0};
+    uint32_t revision {0};
+    std::string drone_id;
   };
 
   enum class DispatchPhase
@@ -325,6 +333,11 @@ private:
         drone->state = *message;
         drone->last_update = now();
         drone->have_state = true;
+        if (drone->landing_active && message->landed_valid && message->landed &&
+          !message->armed)
+        {
+          drone->landing_active = false;
+        }
         if (!drone->have_geofence_origin && message->position_valid) {
           drone->geofence_origin = message->position_enu;
           drone->have_geofence_origin = true;
@@ -805,6 +818,7 @@ private:
   bool landDrones(const std::string & selected_drone_id, std::string & message)
   {
     std::vector<std::string> selected_drones;
+    std::vector<RouteCancellation> route_cancellations;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (dispatch_phase_ != DispatchPhase::IDLE) {
@@ -825,11 +839,26 @@ private:
         return false;
       }
       for (const auto & drone_id : selected_drones) {
+        const auto auxiliary = auxiliary_routes_.find(drone_id);
+        if (auxiliary != auxiliary_routes_.end()) {
+          route_cancellations.push_back(
+            {auxiliary->second.mission_id, auxiliary->second.revision, drone_id});
+        } else if (current_routes_.count(drone_id) != 0 ||
+          provisional_routes_.count(drone_id) != 0)
+        {
+          route_cancellations.push_back({active_mission_id_, active_revision_, drone_id});
+        }
         detachDroneRouteLocked(drone_id, true);
         auxiliary_routes_.erase(drone_id);
-        findDrone(drone_id)->return_home_active = false;
+        auto drone = findDrone(drone_id);
+        drone->return_home_active = false;
+        drone->landing_active = true;
       }
       invalidatePlannedRoutesLocked();
+    }
+    for (const auto & cancellation : route_cancellations) {
+      publishCancelCommand(
+        cancellation.mission_id, cancellation.revision, {cancellation.drone_id});
     }
     publishFlightCommand(SwarmMissionCommand::LAND, selected_drones);
     message = "landing command sent to " + std::to_string(selected_drones.size()) + " drone(s)";
@@ -858,6 +887,7 @@ private:
 
     std::vector<std::string> selected_drones;
     std::vector<std::string> unarmed_drones;
+    std::vector<std::string> landing_drones;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (dispatch_phase_ != DispatchPhase::IDLE) {
@@ -869,9 +899,18 @@ private:
         if (!selected_drone_id.empty() && drone->id != selected_drone_id) continue;
         if (!droneHealthy(*drone, current_time)) continue;
         selected_drones.push_back(drone->id);
+        if (drone->landing_active) landing_drones.push_back(drone->id);
         if (command_type == SwarmMissionCommand::TAKEOFF && !drone->state.armed) {
           unarmed_drones.push_back(drone->id);
         }
+      }
+      if (!landing_drones.empty()) {
+        std::ostringstream reason;
+        reason << "flight command rejected; LAND is still active for:";
+        for (const auto & drone_id : landing_drones) reason << ' ' << drone_id;
+        reason << "; wait for disarm or use FORCE DISARM";
+        message = reason.str();
+        return false;
       }
       if (!unarmed_drones.empty()) {
         std::ostringstream reason;
@@ -883,7 +922,9 @@ private:
       for (const auto & drone_id : selected_drones) {
         detachDroneRouteLocked(drone_id, true);
         auxiliary_routes_.erase(drone_id);
-        findDrone(drone_id)->return_home_active = false;
+        auto drone = findDrone(drone_id);
+        drone->return_home_active = false;
+        drone->landing_active = false;
       }
       if (!selected_drones.empty()) invalidatePlannedRoutesLocked();
     }
@@ -941,7 +982,9 @@ private:
       for (const auto & drone_id : selected_drones) {
         detachDroneRouteLocked(drone_id, true);
         auxiliary_routes_.erase(drone_id);
-        findDrone(drone_id)->return_home_active = false;
+        auto drone = findDrone(drone_id);
+        drone->return_home_active = false;
+        drone->landing_active = false;
       }
       invalidatePlannedRoutesLocked();
     }
@@ -993,6 +1036,13 @@ private:
     if (!require_registration_) return true;
     return heartbeatFreshLocked(drone, std::chrono::steady_clock::now()) &&
            drone.px4_ready && drone.localized && drone.navigation_ready;
+  }
+
+  bool droneReadyForMission(const DroneRecord & drone, const rclcpp::Time & current_time) const
+  {
+    const bool airborne = !drone.state.landed_valid || !drone.state.landed;
+    return droneHealthy(drone, current_time) && drone.state.armed &&
+           drone.state.offboard && airborne && !drone.landing_active;
   }
 
   double targetSpeed(const DroneRecord & drone, const TargetRecord & target) const
@@ -1265,11 +1315,12 @@ private:
           drones_.begin(), drones_.end(),
           [&entry](const auto & candidate) {return candidate->id == entry.first;});
         const bool owns_active_route = current_routes_.count(entry.first) != 0;
-        if (drone == drones_.end() || !droneHealthy(**drone, current_time) ||
+        if (drone == drones_.end() || !droneReadyForMission(**drone, current_time) ||
           ((*drone)->busy && !owns_active_route))
         {
           message = "planned drone " + entry.first +
-            " is no longer available; calculate again";
+            " is not armed, airborne, Offboard, and available; "
+            "ARM/TAKEOFF and calculate again";
           return false;
         }
       }

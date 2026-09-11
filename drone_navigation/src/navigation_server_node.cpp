@@ -67,6 +67,9 @@ public:
 
     state_sub_ = create_subscription<VehicleState>(
       "/vehicle/state", 10, std::bind(&NavigationServerNode::onState, this, _1));
+    flight_command_sub_ = create_subscription<FlightRequest>(
+      "/flight/request", 10,
+      std::bind(&NavigationServerNode::onFlightRequest, this, _1));
     telemetry_sub_ = create_subscription<ApfTelemetry>(
       "/apf/telemetry", 10,
       [this](const ApfTelemetry::SharedPtr message) {
@@ -201,6 +204,7 @@ private:
       arrival_hold_pending_ = false;
       arrival_hold_active_ = false;
       hold_transition_requested_ = false;
+      suppress_cancel_hold_ = false;
     }
     if (previous && previous->is_active()) {
       auto result = std::make_shared<NavigateTo::Result>();
@@ -233,6 +237,27 @@ private:
         get_logger(), "Geofence centered at ENU=(%.1f, %.1f, %.1f)",
         geofence_origin_x_, geofence_origin_y_, geofence_origin_z_);
     }
+  }
+
+  void onFlightRequest(const FlightRequest::SharedPtr request)
+  {
+    if (request->request != FlightRequest::LAND &&
+      request->request != FlightRequest::DISARM &&
+      request->request != FlightRequest::FORCE_DISARM)
+    {
+      return;
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      suppress_cancel_hold_ = true;
+      arrival_hold_pending_ = false;
+      arrival_hold_active_ = false;
+      hold_transition_requested_ = false;
+    }
+    publishInactive();
+    RCLCPP_INFO(
+      get_logger(), "Flight termination requested; autonomous altitude hold released");
   }
 
   void publishInactive()
@@ -372,10 +397,20 @@ private:
     const double distance = std::sqrt(horizontal_distance * horizontal_distance + up * up);
 
     if (goal_handle->is_canceling()) {
-      scheduleArrivalHold(state.position_enu.z, true);
-      RCLCPP_WARN(
-        get_logger(), "Navigation canceled; entering MC altitude hold at %.1fm",
-        state.position_enu.z);
+      bool enter_arrival_hold = false;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        enter_arrival_hold = !suppress_cancel_hold_;
+      }
+      if (enter_arrival_hold) {
+        scheduleArrivalHold(state.position_enu.z, true);
+        RCLCPP_WARN(
+          get_logger(), "Navigation canceled; entering MC altitude hold at %.1fm",
+          state.position_enu.z);
+      } else {
+        RCLCPP_INFO(
+          get_logger(), "Navigation canceled for LAND/disarm; altitude hold stays inactive");
+      }
       finishGoal(
         goal_handle, NavigateTo::Result::CANCELED, "goal canceled", distance, true);
       return;
@@ -501,11 +536,13 @@ private:
   bool arrival_hold_pending_ {false};
   bool arrival_hold_active_ {false};
   bool hold_transition_requested_ {false};
+  bool suppress_cancel_hold_ {false};
   bool geofence_origin_initialized_ {false};
   double arrival_hold_altitude_m_ {0.0};
   rclcpp::Time arrival_hold_start_ {0, 0, RCL_ROS_TIME};
   std::shared_ptr<GoalHandleNavigate> active_goal_;
   rclcpp::Subscription<VehicleState>::SharedPtr state_sub_;
+  rclcpp::Subscription<FlightRequest>::SharedPtr flight_command_sub_;
   rclcpp::Subscription<ApfTelemetry>::SharedPtr telemetry_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr override_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr speed_override_sub_;

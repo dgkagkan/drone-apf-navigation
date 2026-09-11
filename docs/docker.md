@@ -1,7 +1,8 @@
 # Docker workflow
 
 The image contains Ubuntu 24.04, ROS 2 Jazzy, Gazebo Harmonic, the pinned PX4
-SITL checkout, Micro XRCE-DDS Agent, `px4_msgs`, and this ROS workspace. The
+SITL checkout, Micro XRCE-DDS Agent, `px4_msgs`, the pinned Optuna tooling, and
+this ROS workspace. The
 default Compose service runs the complete three-drone simulation headlessly and
 publishes only the dashboard on the host loopback interface.
 

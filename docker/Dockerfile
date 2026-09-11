@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         gosu \
         python3-colcon-common-extensions \
+        python3-pip \
         python3-rosdep \
         ros-${ROS_DISTRO}-desktop \
         ros-${ROS_DISTRO}-ros-gz \
@@ -91,6 +92,9 @@ RUN mkdir -p /opt/px4_msgs_ws/src \
         --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 COPY . /opt/drone_ws/src/drone-apf-navigation
+
+RUN python3 -m pip install --break-system-packages --no-cache-dir \
+        --requirement /opt/drone_ws/src/drone-apf-navigation/requirements-optuna.txt
 
 RUN rosdep update \
     && source /opt/ros/${ROS_DISTRO}/setup.bash \
