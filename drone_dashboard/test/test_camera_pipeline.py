@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
+from rclpy.parameter import Parameter
 from sensor_msgs.msg import Image
 
 from drone_dashboard.dashboard_node import DashboardNode
@@ -19,6 +20,7 @@ def camera_node():
         _last_camera_encode={},
         _camera_encoding=set(),
         _camera_rate_hz=30.0,
+        _camera_resolution="640x360",
         _jpeg_quality=72,
         _decode_image=DashboardNode._decode_image,
         get_logger=Mock(),
@@ -29,6 +31,21 @@ def camera_message():
     message = Image(height=1, width=1, encoding="rgb8", step=3)
     message.data = [255, 0, 0]
     return message
+
+
+def test_camera_parameter_callback_reads_rclpy_parameter_values():
+    node = camera_node()
+
+    result = DashboardNode._on_parameters_set(node, [
+        Parameter("camera_rate_hz", value=15.0),
+        Parameter("camera_resolution", value="320x180"),
+        Parameter("jpeg_quality", value=80),
+    ])
+
+    assert result.successful is True
+    assert node._camera_rate_hz == 15.0
+    assert node._camera_resolution == "320x180"
+    assert node._jpeg_quality == 80
 
 
 def test_slow_encode_drops_overlapping_callbacks(monkeypatch):

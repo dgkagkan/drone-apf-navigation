@@ -10,3 +10,5 @@ docker-data/photos/*
 !docker-data/photos/.gitkeep
 docker-data/recordings/*
 !docker-data/recordings/.gitkeep
+docker-data/settings/*
+!docker-data/settings/.gitkeep

@@ -2,12 +2,15 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 #include <unordered_set>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
@@ -47,6 +50,8 @@ public:
       "/perception/lidar_range_override",
       rclcpp::QoS(1).reliable().transient_local(),
       std::bind(&LidarProcessorNode::onRangeCommand, this, _1));
+    parameter_callback_handle_ = add_on_set_parameters_callback(
+      std::bind(&LidarProcessorNode::onParametersSet, this, std::placeholders::_1));
 
     RCLCPP_INFO(
       get_logger(), "Lidar processor: %s -> %s in %s, range %.1f-%.1fm, voxel %.2fm",
@@ -55,6 +60,51 @@ public:
   }
 
 private:
+  rcl_interfaces::msg::SetParametersResult onParametersSet(
+    const std::vector<rclcpp::Parameter> & parameters)
+  {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    try {
+      std::lock_guard<std::mutex> lock(range_mutex_);
+      double max_range = max_range_m_;
+      double ground_height = ground_height_m_;
+      double voxel_size = voxel_size_m_;
+      for (const auto & parameter : parameters) {
+        if (parameter.get_name() == "max_range_m") max_range = parameter.as_double();
+        else if (parameter.get_name() == "ground_height_m") {
+          ground_height = parameter.as_double();
+        } else if (parameter.get_name() == "voxel_size_m") {
+          voxel_size = parameter.as_double();
+        }
+      }
+      if (!std::isfinite(max_range) || max_range < min_commanded_range_m_ ||
+        max_range > max_commanded_range_m_)
+      {
+        result.successful = false;
+        result.reason = "LiDAR range must be within the commanded range limits";
+      } else if (!std::isfinite(ground_height) || ground_height < -10.0 || ground_height > 10.0) {
+        result.successful = false;
+        result.reason = "ground filter height must be between -10 and 10 m";
+      } else if (!std::isfinite(voxel_size) || voxel_size < 0.01 || voxel_size > 5.0) {
+        result.successful = false;
+        result.reason = "voxel size must be between 0.01 and 5 m";
+      }
+      if (result.successful) {
+        max_range_m_ = max_range;
+        ground_height_m_ = ground_height;
+        voxel_size_m_ = voxel_size;
+      }
+    } catch (const std::exception & exception) {
+      result.successful = false;
+      result.reason = exception.what();
+    }
+    if (result.successful) {
+      RCLCPP_INFO(get_logger(), "Runtime LiDAR parameter update accepted");
+    }
+    return result;
+  }
+
   void onRangeCommand(const std_msgs::msg::Float64::SharedPtr message)
   {
     if (!std::isfinite(message->data) || message->data < min_commanded_range_m_ ||
@@ -109,12 +159,12 @@ private:
     output_z = z + q.w * tz + (q.x * ty - q.y * tx) + transform.translation.z;
   }
 
-  VoxelKey voxelKey(double x, double y, double z) const
+  VoxelKey voxelKey(double x, double y, double z, double voxel_size_m) const
   {
     return {
-      static_cast<int64_t>(std::floor(x / voxel_size_m_)),
-      static_cast<int64_t>(std::floor(y / voxel_size_m_)),
-      static_cast<int64_t>(std::floor(z / voxel_size_m_))};
+      static_cast<int64_t>(std::floor(x / voxel_size_m)),
+      static_cast<int64_t>(std::floor(y / voxel_size_m)),
+      static_cast<int64_t>(std::floor(z / voxel_size_m))};
   }
 
   void onCloud(const sensor_msgs::msg::PointCloud2::SharedPtr cloud)
@@ -149,9 +199,13 @@ private:
 
     std::unordered_set<VoxelKey, VoxelHash> occupied_voxels;
     double max_range_m = 0.0;
+    double ground_height_m = 0.0;
+    double voxel_size_m = 0.0;
     {
       std::lock_guard<std::mutex> lock(range_mutex_);
       max_range_m = max_range_m_;
+      ground_height_m = ground_height_m_;
+      voxel_size_m = voxel_size_m_;
     }
     const double min_range_squared = min_range_m_ * min_range_m_;
     const double max_range_squared = max_range_m * max_range_m;
@@ -172,11 +226,13 @@ private:
       double map_z = 0.0;
       rotateAndTranslate(transform.transform, *x, *y, *z, map_x, map_y, map_z);
       if (!std::isfinite(map_x) || !std::isfinite(map_y) || !std::isfinite(map_z) ||
-        map_z <= ground_height_m_)
+        map_z <= ground_height_m)
       {
         continue;
       }
-      if (voxel_size_m_ > 0.0 && !occupied_voxels.insert(voxelKey(map_x, map_y, map_z)).second) {
+      if (voxel_size_m > 0.0 &&
+        !occupied_voxels.insert(voxelKey(map_x, map_y, map_z, voxel_size_m)).second)
+      {
         continue;
       }
 
@@ -208,6 +264,7 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr range_sub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr parameter_callback_handle_;
 };
 
 int main(int argc, char * argv[])

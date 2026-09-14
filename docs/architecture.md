@@ -45,19 +45,82 @@ continues to feed APF unchanged. Max-range rays are kept only in the mapping
 message so they clear free space without becoming APF obstacles.
 
 `swarm_global_map_server` subscribes to `/swarm/state` and creates/removes
-mapping subscriptions dynamically. It maintains independent bounded evidence
-for every drone and an incremental global evidence sum. Occupied observations,
-free-space rays, conflicting observations, and drone disconnects therefore
-remain attributable to the source drone. A retained contribution can be
-removed after `submap_timeout_sec`, or immediately with
-`remove_submap_on_disconnect`.
+mapping subscriptions dynamically. It maintains **one complete local OctoMap
+per LiDAR drone and one global occupied map**, for any number of drones. Local
+trees retain their own probabilistic occupied/free-space evidence. The global
+map is not a Boolean union of local occupied cells. Every scan contributes its
+raw hit endpoints and miss rays directly, so verified free space from any drone
+can clear a voxel that was previously seen occupied by any other drone.
+
+Global fusion and each local occupied cache use the same evidence policy.
+By default (`dynamic_obstacle_timeout_sec=0`), hits immediately enter the
+persistent layer; they do not expire merely because they are no longer seen.
+Miss rays reduce log-odds instead of instantly hiding a voxel. This retains
+sparse floor hits and avoids toggling local/global colors on isolated misses.
+Enough newer misses still clear any obstacle, regardless of which drone first
+observed it. With default probabilities, a saturated voxel clears after four
+misses without intervening hits. There is no object-specific floor exemption.
+
+A positive `dynamic_obstacle_timeout_sec` opts into the previous temporal mode:
+recent hits expire when unseen unless `static_confirmation_sec` and
+`static_confirmation_hits` promote them to persistent geometry. Free rays clear
+temporal occupancy immediately; persistent geometry needs probabilistic misses.
+This mode trades retention of sparse surfaces for removal of unobserved moving
+objects and may cause local-color flicker. Same-time hit/free conflicts in the
+temporal layer favor the hit. Both modes publish one composed global map.
+
+Each drone has its own insertion worker. The standard OctoMap batch ray update
+produces the free/hit key sets once; those sets update both its full local tree
+and the global fusion. Only occupied/free transitions are cached for
+publication, and temporal expiry uses a per-voxel deadline queue rather than a
+full-map scan. Scan timestamps prevent repeated processing of the same
+nonzero-stamped scan. Session/reset generations prevent in-flight scans from
+restoring a cleared local contribution. Reset/disconnect policy affects that
+drone's local diagnostic map only; the source-neutral global map is corrected
+by later free rays or temporal expiry. Retained local maps survive a temporary
+disconnect/reconnect until `submap_timeout_sec`.
+
+The RViz cloud publisher and binary/full serializer have separate workers with
+coalesced requests (no growing queue). They copy only occupied keys or pending
+global changes under the shared lock; encoding, ray insertion and DDS publishing
+run outside it. The global serialized tree is updated incrementally. Identical
+geometry is not regenerated on every timer tick. Local/debug clouds and
+serialization are generated on demand, including when a subscriber joins an
+otherwise idle map. Default launch rates remain 5 Hz for changed RViz geometry
+and 1 Hz for changed binary/full maps; these are ceilings, not guaranteed scan
+throughput. The mapper logs snapshot/encode/publish time for profiling.
 
 The fused occupied centers are published on
 `/swarm/octomap_point_cloud_centers` and the binary/full OctoMap messages on
-`/swarm/octomap_binary` and `/swarm/octomap_full`. RViz displays the centers as
-`Persistent global OctoMap`. Per-drone occupied contributions are available on
+`/swarm/octomap_binary` and `/swarm/octomap_full`. Per-drone occupied contributions are available on
 `/swarm/mapping/<drone_id>/occupied_voxels`; these topics are created as drones
 join, so no drone IDs are hardcoded in the mapper.
+The default RViz display is `Global OctoMap only (height)`, using
+`/swarm/octomap_point_cloud_centers` to show the complete global occupied
+centers with height colors. The optional `/swarm/mapping_visualization` display
+uses exactly the same global geometry but lets each connected local map replace
+the color of matching global voxels. Local colors come from a registration index
+and a hue sequence excluding yellow/green.
+Indices survive reconnects within the mapper process; restarting with a different
+registration order can change them. When several locals cover a voxel, the first
+drone ID in lexical order wins. This single point cloud avoids coincident geometry
+and never restores a globally cleared voxel from stale local evidence.
+Local maps include retained history, not a rolling Nav2 window. The optional
+`Global OctoMap only (height)` display shows the complete height-colored global map;
+disable the combined display when using it. The separate `Local map contributions`
+diagnostic display remains disabled by default. Resolution (0.5 m), point size,
+and sensor range (300 m) are unchanged.
+
+The combined cloud's base palette runs blue–cyan–green–yellow–red from low to
+high Z, clamped to the mapper's `visualization_min_z_m` (-1) and
+`visualization_max_z_m` (60). Fixed bounds avoid whole-map recoloring when a new
+height extreme appears. The standalone RViz AxisColor display has separate
+height bounds, initially matching these defaults. Local colors still take priority.
+
+The main mapping LiDAR has a 360-degree horizontal sweep but only ±15-degree
+vertical coverage. Its downward blind region is not a ground filter: no floor
+voxels can be inserted there without actual returns. The separate downward
+landing sensor is currently not an input to the mapper.
 
 ## Packages
 
@@ -114,9 +177,9 @@ join, so no drone IDs are hardcoded in the mapper.
 
 - `controller.launch.py`: manual PS4 control, navigation action, APF, gimbal,
   and optional RViz visualization.
-- `swarm_sim.launch.py`: three independent PX4 SITL vehicles, three XRCE
-  agents, three namespaced controller stacks, and the swarm coordinator in one
-  Gazebo world.
+- `swarm_sim.launch.py`: a configurable number of independent PX4 SITL
+  vehicles, one XRCE agent and namespaced controller stack per vehicle, plus
+  the swarm coordinator in one Gazebo world.
 - `automated_controller.launch.py`: automated/Optuna mission using the same
   LiDAR, APF, supervisor, and gateway nodes.
 - `apf.launch.py`: compatibility wrapper for the modular automated mission.
@@ -344,10 +407,11 @@ The small pure-Python dashboard package is included only to keep
 `drone_bringup` dependency metadata complete; `drone_brain.launch.py` never
 starts it and the Pi does not subscribe to camera images.
 
-## Three-drone simulation
+## Configurable swarm simulation
 
 The complete local swarm simulation uses one custom VTOL model per vehicle and
-keeps each autopilot path independent:
+keeps each autopilot path independent. The default is three vehicles, but the
+same launch creates `drone_1` through `drone_N`:
 
 | Drone | PX4 instance | MAV system ID | XRCE UDP port | Initial map position |
 | --- | ---: | ---: | ---: | --- |
@@ -359,8 +423,27 @@ keeps each autopilot path independent:
 colcon build --packages-select drone_interfaces drone_description \
   drone_control drone_navigation drone_swarm drone_dashboard drone_bringup
 source install/setup.bash
-ros2 launch drone_bringup swarm_sim.launch.py
+ros2 launch drone_bringup swarm_sim.launch.py drones:=3
+
+# For example, start five complete simulated vehicles.
+ros2 launch drone_bringup swarm_sim.launch.py drones:=5
 ```
+
+For each generated ID the launch allocates a unique PX4 instance, MAV system
+ID, XRCE UDP port, DDS namespace, Gazebo model/topic set, controller and TF
+stack, mapping relay and RViz displays. The first three positions stay
+backwards-compatible with the original layout. Later vehicles are placed on
+expanding six-point rings around the origin; `drone_spawn_spacing_m` controls
+the ring spacing and `base_agent_port` controls the first XRCE port. The
+generated bridge and swarm parameter files are written to
+`work_root/generated` for that run, so the checked-in three-drone YAML files
+remain unchanged.
+
+The supported configuration range is `drones:=0` through `drones:=255` in one
+launch. The upper bound comes from PX4's one-byte MAV system ID and is a
+practical finite bound, while CPU, GPU, memory, UDP ports and Gazebo determine
+what a computer can run in practice. With `drones:=0`, only shared components
+such as `/clock`, the coordinator and dashboard are started.
 
 The default swarm world is `test`, containing the tiled grass ground and the
 90 distributed obstacles. Use `world:=optuna_course` when the optimization

@@ -21,7 +21,8 @@ if [[ "${EUID}" -eq 0 ]]; then
     fi
 
     install -d -o "${runtime_uid}" -g "${runtime_gid}" \
-        /data/photos /data/recordings /workspace/build /workspace/install /workspace/log
+        /data/photos /data/recordings /data/settings \
+        /workspace/build /workspace/install /workspace/log
     chown -R "${runtime_uid}:${runtime_gid}" /home/drone /workspace/build \
         /workspace/install /workspace/log
     exec gosu drone "$0" "$@"
@@ -50,6 +51,9 @@ if [[ "${1:-}" == "run" ]]; then
     exec ros2 launch drone_bringup swarm_sim.launch.py \
         "px4_dir:=${PX4_DIR}" \
         "agent:=${XRCE_AGENT}" \
+        "drones:=${DRONE_COUNT:-3}" \
+        "base_agent_port:=${DRONE_BASE_AGENT_PORT:-8888}" \
+        "drone_spawn_spacing_m:=${DRONE_SPAWN_SPACING_M:-8.0}" \
         "world:=${DRONE_WORLD:-test}" \
         "headless:=${DRONE_HEADLESS:-true}" \
         "use_rviz:=${DRONE_USE_RVIZ:-false}" \
@@ -63,7 +67,8 @@ if [[ "${1:-}" == "run" ]]; then
         "dashboard_rate_hz:=${DASHBOARD_RATE_HZ:-60.0}" \
         "preconfigure_media_storage:=true" \
         "photo_save_dir:=/data/photos" \
-        "record_save_dir:=/data/recordings"
+        "record_save_dir:=/data/recordings" \
+        "settings_profile_path:=${SETTINGS_PROFILE_PATH:-/data/settings/runtime_profiles.json}"
 fi
 
 exec "$@"

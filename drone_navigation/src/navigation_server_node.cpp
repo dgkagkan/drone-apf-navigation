@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -14,6 +15,7 @@
 #include <drone_interfaces/msg/motion_command.hpp>
 #include <drone_interfaces/msg/vehicle_state.hpp>
 #include <drone_interfaces/srv/validate_goal.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <std_msgs/msg/bool.hpp>
@@ -111,6 +113,8 @@ public:
       std::bind(&NavigationServerNode::handleAccepted, this, _1));
     timer_ = create_wall_timer(
       std::chrono::milliseconds(50), std::bind(&NavigationServerNode::onTimer, this));
+    parameter_callback_handle_ = add_on_set_parameters_callback(
+      std::bind(&NavigationServerNode::onParametersSet, this, std::placeholders::_1));
 
     RCLCPP_INFO(
       get_logger(),
@@ -119,6 +123,103 @@ public:
   }
 
 private:
+  rcl_interfaces::msg::SetParametersResult onParametersSet(
+    const std::vector<rclcpp::Parameter> & parameters)
+  {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      double goal_tolerance = goal_tolerance_m_;
+      double altitude_tolerance = altitude_tolerance_m_;
+      double goal_chain_grace = goal_chain_grace_period_s_;
+      double default_speed = default_speed_m_s_;
+      double max_speed = max_speed_m_s_;
+      double altitude_gain = altitude_gain_;
+      double arrival_gain = multicopter_arrival_gain_;
+      double max_vertical_speed = max_vertical_speed_m_s_;
+      double transition_period = transition_request_period_s_;
+      for (const auto & parameter : parameters) {
+        const auto & name = parameter.get_name();
+        if (name == "goal_tolerance_m") goal_tolerance = parameter.as_double();
+        else if (name == "altitude_tolerance_m") altitude_tolerance = parameter.as_double();
+        else if (name == "goal_chain_grace_period_s") {
+          goal_chain_grace = parameter.as_double();
+        } else if (name == "default_speed_m_s") {
+          default_speed = parameter.as_double();
+        } else if (name == "max_speed_m_s") {
+          max_speed = parameter.as_double();
+        } else if (name == "altitude_gain") {
+          altitude_gain = parameter.as_double();
+        } else if (name == "multicopter_arrival_gain") {
+          arrival_gain = parameter.as_double();
+        } else if (name == "max_vertical_speed_m_s") {
+          max_vertical_speed = parameter.as_double();
+        } else if (name == "transition_request_period_s") {
+          transition_period = parameter.as_double();
+        }
+      }
+      if (!std::isfinite(goal_tolerance) || goal_tolerance < 0.2 || goal_tolerance > 200.0) {
+        result.successful = false;
+        result.reason = "goal tolerance must be between 0.2 and 200 m";
+      } else if (!std::isfinite(altitude_tolerance) || altitude_tolerance < 0.2 ||
+        altitude_tolerance > 50.0)
+      {
+        result.successful = false;
+        result.reason = "altitude tolerance must be between 0.2 and 50 m";
+      } else if (!std::isfinite(goal_chain_grace) || goal_chain_grace < 0.05 ||
+        goal_chain_grace > 10.0)
+      {
+        result.successful = false;
+        result.reason = "goal chain grace period must be between 0.05 and 10 s";
+      } else if (!std::isfinite(default_speed) || default_speed < 0.2 ||
+        default_speed > max_speed)
+      {
+        result.successful = false;
+        result.reason = "default speed must be between 0.2 m/s and the maximum speed";
+      } else if (!std::isfinite(max_speed) || max_speed < 0.2 || max_speed > 100.0 ||
+        max_speed < default_speed)
+      {
+        result.successful = false;
+        result.reason = "maximum speed must be at least the default speed and at most 100 m/s";
+      } else if (!std::isfinite(altitude_gain) || altitude_gain < 0.1 || altitude_gain > 10.0) {
+        result.successful = false;
+        result.reason = "altitude gain must be between 0.1 and 10";
+      } else if (!std::isfinite(arrival_gain) || arrival_gain < 0.1 || arrival_gain > 10.0) {
+        result.successful = false;
+        result.reason = "multicopter arrival gain must be between 0.1 and 10";
+      } else if (!std::isfinite(max_vertical_speed) || max_vertical_speed < 0.2 ||
+        max_vertical_speed > 30.0)
+      {
+        result.successful = false;
+        result.reason = "vertical speed must be between 0.2 and 30 m/s";
+      } else if (!std::isfinite(transition_period) || transition_period < 0.2 ||
+        transition_period > 10.0)
+      {
+        result.successful = false;
+        result.reason = "transition request period must be between 0.2 and 10 s";
+      }
+      if (result.successful) {
+        goal_tolerance_m_ = goal_tolerance;
+        altitude_tolerance_m_ = altitude_tolerance;
+        goal_chain_grace_period_s_ = goal_chain_grace;
+        default_speed_m_s_ = default_speed;
+        max_speed_m_s_ = max_speed;
+        altitude_gain_ = altitude_gain;
+        multicopter_arrival_gain_ = arrival_gain;
+        max_vertical_speed_m_s_ = max_vertical_speed;
+        transition_request_period_s_ = transition_period;
+      }
+    } catch (const std::exception & exception) {
+      result.successful = false;
+      result.reason = exception.what();
+    }
+    if (result.successful) {
+      RCLCPP_INFO(get_logger(), "Runtime navigation parameter update accepted");
+    }
+    return result;
+  }
+
   struct GoalValidation
   {
     bool valid;
@@ -373,6 +474,13 @@ private:
     std::string active_apf_mode;
     bool has_speed_override = false;
     double speed_override_m_s = 0.0;
+    double goal_tolerance_m = 25.0;
+    double configured_altitude_tolerance_m = 2.0;
+    double default_speed_m_s = 15.0;
+    double max_speed_m_s = 20.0;
+    double altitude_gain = 0.8;
+    double multicopter_arrival_gain = 0.8;
+    double max_vertical_speed_m_s = 3.0;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       goal_handle = active_goal_;
@@ -382,6 +490,13 @@ private:
       active_apf_mode = active_apf_mode_;
       has_speed_override = has_speed_override_;
       speed_override_m_s = speed_override_m_s_;
+      goal_tolerance_m = goal_tolerance_m_;
+      configured_altitude_tolerance_m = altitude_tolerance_m_;
+      default_speed_m_s = default_speed_m_s_;
+      max_speed_m_s = max_speed_m_s_;
+      altitude_gain = altitude_gain_;
+      multicopter_arrival_gain = multicopter_arrival_gain_;
+      max_vertical_speed_m_s = max_vertical_speed_m_s_;
     }
     if (!goal_handle || !goal_handle->is_active()) {
       processArrivalHold(state);
@@ -439,9 +554,9 @@ private:
       return;
     }
     const double horizontal_tolerance_m = goal->horizontal_tolerance_m > 0.0 ?
-      std::max(0.2, goal->horizontal_tolerance_m) : goal_tolerance_m_;
+      std::max(0.2, goal->horizontal_tolerance_m) : goal_tolerance_m;
     const double altitude_tolerance_m = goal->altitude_tolerance_m > 0.0 ?
-      std::max(0.2, goal->altitude_tolerance_m) : altitude_tolerance_m_;
+      std::max(0.2, goal->altitude_tolerance_m) : configured_altitude_tolerance_m;
     if (horizontal_distance <= horizontal_tolerance_m &&
       std::fabs(up) <= altitude_tolerance_m)
     {
@@ -466,10 +581,10 @@ private:
     }
 
     const double requested_speed = has_speed_override ? speed_override_m_s :
-      (goal->cruise_speed_m_s > 0.0 ? goal->cruise_speed_m_s : default_speed_m_s_);
-    const double speed = std::clamp(requested_speed, 0.2, max_speed_m_s_);
+      (goal->cruise_speed_m_s > 0.0 ? goal->cruise_speed_m_s : default_speed_m_s);
+    const double speed = std::clamp(requested_speed, 0.2, max_speed_m_s);
     const double horizontal_speed = goal->use_fixed_wing ? speed :
-      std::min(speed, multicopter_arrival_gain_ * horizontal_distance);
+      std::min(speed, multicopter_arrival_gain * horizontal_distance);
     MotionCommand command;
     command.header.stamp = now();
     command.header.frame_id = "map";
@@ -485,7 +600,7 @@ private:
     }
     if (!goal->use_fixed_wing) {
       command.velocity_enu.z = std::clamp(
-        altitude_gain_ * up, -max_vertical_speed_m_s_, max_vertical_speed_m_s_);
+        altitude_gain * up, -max_vertical_speed_m_s, max_vertical_speed_m_s);
     }
     command_pub_->publish(command);
 
@@ -552,6 +667,7 @@ private:
   rclcpp::Service<ValidateGoal>::SharedPtr validate_service_;
   rclcpp_action::Server<NavigateTo>::SharedPtr action_server_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr parameter_callback_handle_;
 };
 
 int main(int argc, char * argv[])

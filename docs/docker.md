@@ -2,9 +2,10 @@
 
 The image contains Ubuntu 24.04, ROS 2 Jazzy, Gazebo Harmonic, the pinned PX4
 SITL checkout, Micro XRCE-DDS Agent, `px4_msgs`, the pinned Optuna tooling, and
-this ROS workspace. The
-default Compose service runs the complete three-drone simulation headlessly and
-publishes only the dashboard on the host loopback interface.
+this ROS workspace. The default Compose service starts Gazebo GUI, RViz, the
+complete configurable drone simulation, and the dashboard on the host loopback
+interface. The portable launcher automatically selects NVIDIA, Intel/AMD
+`/dev/dri`, or software rendering.
 
 ## First run
 
@@ -13,16 +14,43 @@ only when you need to change paths, IDs, or build parallelism:
 
 ```bash
 cp .env.example .env
-docker compose up --build
+./scripts/run_docker.sh 3
 ```
 
 Open <http://127.0.0.1:8765>. Snapshots and recordings are enabled at startup
-and are written to `docker-data/photos` and `docker-data/recordings`. Set
-`PHOTO_DIR` and `RECORD_DIR` in `.env` to absolute host paths to store them
-elsewhere.
+and are written to `docker-data/photos` and `docker-data/recordings`. Saved
+dashboard parameter profiles are written to `docker-data/settings`. Set
+`PHOTO_DIR`, `RECORD_DIR`, or `SETTINGS_DIR` in `.env` to absolute host paths
+to store them elsewhere.
+
+The Settings drawer has a top-level `LIVE PARAMETERS` folder. It contains the
+collapsible `PROFILES` folder and the runtime parameter folders. Save the current
+values with a name, then load a profile later and press `APPLY CHANGES`.
+Profiles are JSON files outside the container (`SETTINGS_DIR` on the host), so
+they remain available after Docker image rebuilds and container recreation.
+Loading a profile never changes a drone until the explicit apply action is
+pressed.
+
+The separate `FILES` folder controls snapshot and recording storage. Chrome and
+Edge can use `CHOOSE FOLDER` to grant the browser write access to a host folder.
+Firefox does not expose the required directory-write API; with Docker, use the
+`SERVER PATH` fields or configure `PHOTO_DIR` and `RECORD_DIR` in `.env` before
+starting the container. In a native run, the server-side picker requires
+`zenity` or `kdialog`.
 
 The first image build compiles PX4, the XRCE agent, `px4_msgs`, and the project,
 so it takes substantially longer than later cached builds.
+
+The number of simulated vehicles is configurable through `.env` without
+changing the image:
+
+```bash
+./scripts/run_docker.sh 5
+```
+
+This starts five PX4 processes, five XRCE agents and five namespaced brains.
+`DRONE_BASE_AGENT_PORT` changes the first agent port and
+`DRONE_SPAWN_SPACING_M` changes the generated layout spacing.
 
 ## Development mode
 
@@ -47,27 +75,17 @@ changes.
 
 ## Graphics acceleration
 
-The default uses Mesa software rendering and Gazebo EGL headless rendering so
-camera and GPU LiDAR sensors work without an X server. On Intel or AMD Linux,
-enable direct rendering with:
+The base Compose service forwards the host X11 socket and defaults to software
+rendering, so it can start without a GPU. `scripts/run_docker.sh` selects the
+NVIDIA overlay when `nvidia-smi` detects NVIDIA, the Intel/AMD overlay when
+`/dev/dri/renderD128` exists, and software rendering otherwise. NVIDIA needs a
+working driver and NVIDIA Container Toolkit; Intel/AMD needs a usable render
+device. Set `GPU_BACKEND=nvidia|intel|software` to override auto-detection.
+
+For a lighter run without windows, override the two runtime flags explicitly:
 
 ```bash
-docker compose -f compose.yaml -f compose.gpu.yaml up --build
-```
-
-Set `RENDER_GID` in `.env` to the numeric host `render` group when it is not
-109. For an NVIDIA host with NVIDIA Container Toolkit installed, use:
-
-```bash
-docker compose -f compose.yaml -f compose.nvidia.yaml up --build
-```
-
-To open Gazebo and RViz through X11, allow the current local user and add the
-GUI overlay. It can be combined with either GPU overlay:
-
-```bash
-xhost +si:localuser:$(id -un)
-docker compose -f compose.yaml -f compose.gui.yaml -f compose.gpu.yaml up --build
+DRONE_HEADLESS=true DRONE_USE_RVIZ=false ./scripts/run_docker.sh 3
 ```
 
 Revoke the temporary X11 permission after stopping the stack:

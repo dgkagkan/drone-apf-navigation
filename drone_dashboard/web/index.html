@@ -12,7 +12,10 @@
       <p class="eyebrow">VTOL APF SWARM</p>
       <h1>Mission Control</h1>
     </div>
-    <div class="connection"><span id="connection-dot"></span><span id="connection-text">Connecting</span></div>
+    <div class="topbar-actions">
+      <button class="button settings-trigger" id="open-settings" title="Open runtime settings">⚙ SETTINGS</button>
+      <div class="connection"><span id="connection-dot"></span><span id="connection-text">Connecting</span></div>
+    </div>
   </header>
 
   <main>
@@ -101,45 +104,128 @@
       <div id="camera-grid" class="camera-grid"></div>
     </section>
 
-    <section class="panel media-storage-section">
-      <div class="panel-heading">
-        <div><p class="eyebrow">FILES</p><h2>Snapshot &amp; recording storage</h2></div>
-        <p>Choose separate folders before capturing media</p>
+  </main>
+
+  <div id="settings-modal" class="settings-modal" hidden>
+    <div class="settings-backdrop" data-close-settings></div>
+    <section class="settings-drawer" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="settings-header">
+        <div><p class="eyebrow">RUNTIME CONTROL</p><h2 id="settings-title">Settings</h2></div>
+        <button class="icon-button" id="close-settings" title="Close settings" aria-label="Close settings">×</button>
       </div>
-      <div class="media-storage-panel">
-        <div class="media-storage-row">
-          <div class="media-storage-title"><p class="eyebrow">SNAPSHOTS</p><b>Photo storage</b></div>
-          <div class="media-storage-actions">
-            <button class="button" id="choose-photo-folder">CHOOSE FOLDER</button>
-            <label>NEW FOLDER NAME
-              <input id="photo-folder-name" type="text" value="drone_photos" maxlength="80">
-            </label>
-            <button class="button primary" id="create-photo-folder">CREATE FOLDER</button>
-            <label>SERVER PATH
-              <input id="photo-server-path" type="text" placeholder="/home/user/drone_photos">
-            </label>
-            <button class="button" id="configure-photo-path">USE PATH</button>
+      <div class="settings-scope">
+        <label for="settings-target">APPLY TO
+          <select id="settings-target"><option value="ALL">ALL CONNECTED DRONES</option></select>
+        </label>
+        <p id="settings-target-status">Edit values and apply them together. Save a profile to reuse the values after a restart.</p>
+      </div>
+      <div class="settings-scroll">
+        <details class="settings-folder live-parameters-folder" open>
+          <summary class="settings-folder-summary">
+            <span class="settings-folder-label"><span class="eyebrow">SETTINGS</span><strong>Live parameters</strong></span>
+            <span class="settings-folder-chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <div class="live-parameters-body">
+            <details class="settings-folder settings-profile-section">
+              <summary class="settings-folder-summary">
+                <span class="settings-folder-label"><span class="eyebrow">PROFILES</span><strong>Saved parameter profiles</strong></span>
+                <span class="settings-folder-chevron" aria-hidden="true">⌄</span>
+              </summary>
+              <div class="settings-folder-body">
+                <p class="settings-folder-note">Profiles are stored outside the container.</p>
+                <div class="settings-profile-controls">
+                  <label>SELECT PROFILE
+                    <select id="settings-profile-select">
+                      <option value="">NO PROFILE SELECTED</option>
+                    </select>
+                  </label>
+                  <button class="button" id="load-settings-profile" disabled>LOAD PROFILE</button>
+                  <label>PROFILE NAME
+                    <input id="settings-profile-name" type="text" maxlength="80" placeholder="e.g. Inspection safe">
+                  </label>
+                  <button class="button primary" id="save-settings-profile">SAVE CURRENT</button>
+                  <button class="button danger ghost" id="delete-settings-profile" disabled>DELETE</button>
+                </div>
+                <p id="settings-profile-status">Loading a profile creates unapplied changes. Press APPLY CHANGES to send them to the selected drone(s).</p>
+              </div>
+            </details>
+            <div id="settings-content" class="settings-content">
+              <div class="settings-empty">Open Settings to load runtime parameters.</div>
+            </div>
           </div>
-          <p id="photo-storage-status">No folder selected. SNAPSHOT is disabled.</p>
+        </details>
+        <details class="settings-folder settings-files-section">
+          <summary class="settings-folder-summary">
+            <span class="settings-folder-label"><span class="eyebrow">FILES</span><strong>Snapshot &amp; recording storage</strong></span>
+            <span class="settings-folder-chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <div class="settings-folder-body">
+            <p class="settings-folder-note">Choose separate folders before capturing media.</p>
+          <div class="media-storage-panel">
+            <div class="media-storage-row">
+              <div class="media-storage-title"><p class="eyebrow">SNAPSHOTS</p><b>Photo storage</b></div>
+              <div class="media-storage-actions">
+                <button class="button" id="choose-photo-folder">CHOOSE FOLDER</button>
+                <label>NEW FOLDER NAME
+                  <input id="photo-folder-name" type="text" value="drone_photos" maxlength="80">
+                </label>
+                <button class="button primary" id="create-photo-folder">CREATE FOLDER</button>
+                <label>SERVER PATH
+                  <input id="photo-server-path" type="text" placeholder="/home/user/drone_photos">
+                </label>
+                <button class="button" id="configure-photo-path">USE PATH</button>
+              </div>
+              <p id="photo-storage-status">No folder selected. SNAPSHOT is disabled.</p>
+            </div>
+            <div class="media-storage-row">
+              <div class="media-storage-title"><p class="eyebrow">RECORDINGS</p><b>Video storage</b></div>
+              <div class="media-storage-actions">
+                <button class="button" id="choose-record-folder">CHOOSE FOLDER</button>
+                <label>NEW FOLDER NAME
+                  <input id="record-folder-name" type="text" value="drone_recordings" maxlength="80">
+                </label>
+                <button class="button primary" id="create-record-folder">CREATE FOLDER</button>
+                <label>SERVER PATH
+                  <input id="record-server-path" type="text" placeholder="/home/user/drone_recordings">
+                </label>
+                <button class="button" id="configure-record-path">USE PATH</button>
+              </div>
+              <p id="record-storage-status">No folder selected. RECORD is disabled.</p>
+            </div>
+          </div>
+          </div>
+        </details>
+      </div>
+      <div class="settings-footer">
+        <div class="settings-footer-copy">
+          <p id="settings-error" class="settings-error" role="alert" hidden></p>
+          <span>Use the ⓘ buttons for English parameter explanations.</span>
+          <span id="settings-dirty-status">No unapplied changes</span>
         </div>
-        <div class="media-storage-row">
-          <div class="media-storage-title"><p class="eyebrow">RECORDINGS</p><b>Video storage</b></div>
-          <div class="media-storage-actions">
-            <button class="button" id="choose-record-folder">CHOOSE FOLDER</button>
-            <label>NEW FOLDER NAME
-              <input id="record-folder-name" type="text" value="drone_recordings" maxlength="80">
-            </label>
-            <button class="button primary" id="create-record-folder">CREATE FOLDER</button>
-            <label>SERVER PATH
-              <input id="record-server-path" type="text" placeholder="/home/user/drone_recordings">
-            </label>
-            <button class="button" id="configure-record-path">USE PATH</button>
-          </div>
-          <p id="record-storage-status">No folder selected. RECORD is disabled.</p>
+        <div class="settings-footer-actions">
+          <button class="button ghost" id="revert-settings" title="Restore the original values defined in code">REVERT TO DEFAULTS</button>
+          <button class="button ghost" id="discard-settings" disabled>DISCARD</button>
+          <button class="button primary" id="apply-settings" disabled>APPLY CHANGES</button>
+          <button class="button ghost" data-close-settings>CLOSE</button>
         </div>
       </div>
     </section>
-  </main>
+  </div>
+
+  <div id="settings-confirm" class="settings-confirm" hidden>
+    <div class="settings-confirm-backdrop"></div>
+    <section class="settings-confirm-dialog" role="alertdialog" aria-modal="true"
+      aria-labelledby="settings-confirm-title" aria-describedby="settings-confirm-message">
+      <p class="eyebrow">UNSAVED CHANGES</p>
+      <h2 id="settings-confirm-title">Apply changes before closing?</h2>
+      <p id="settings-confirm-message">You have runtime settings that have not been applied yet. Choose what to do with them.</p>
+      <div class="settings-confirm-actions">
+        <button class="button ghost" id="confirm-keep-editing">KEEP EDITING</button>
+        <button class="button danger ghost" id="confirm-discard-settings">DISCARD &amp; CLOSE</button>
+        <button class="button primary" id="confirm-apply-settings">APPLY &amp; CLOSE</button>
+      </div>
+    </section>
+  </div>
 
   <div id="toast" class="toast"></div>
   <script src="/polling.js"></script>

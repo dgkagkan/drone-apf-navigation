@@ -12,6 +12,7 @@
   <depend>drone_interfaces</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>rcl_interfaces</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
   <depend>sensor_msgs</depend>

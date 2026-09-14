@@ -19,16 +19,24 @@ services:
       ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
       DASHBOARD_PORT: 8765
       DASHBOARD_RATE_HZ: ${DASHBOARD_RATE_HZ:-60.0}
-      DRONE_HEADLESS: ${DRONE_HEADLESS:-true}
-      DRONE_USE_RVIZ: ${DRONE_USE_RVIZ:-false}
+      DRONE_COUNT: ${DRONE_COUNT:-3}
+      DRONE_BASE_AGENT_PORT: ${DRONE_BASE_AGENT_PORT:-8888}
+      DRONE_SPAWN_SPACING_M: ${DRONE_SPAWN_SPACING_M:-8.0}
+      DRONE_HEADLESS: ${DRONE_HEADLESS:-false}
+      DRONE_USE_RVIZ: ${DRONE_USE_RVIZ:-true}
       DRONE_USE_MAPPING: ${DRONE_USE_MAPPING:-true}
       DRONE_WORLD: ${DRONE_WORLD:-test}
+      DISPLAY: ${DISPLAY:-:0}
       LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-1}
+      QT_X11_NO_MITSHM: "1"
+      SETTINGS_PROFILE_PATH: /data/settings/runtime_profiles.json
     ports:
       - "${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:${DASHBOARD_PORT:-8765}:8765"
     volumes:
       - ${PHOTO_DIR:-./docker-data/photos}:/data/photos
       - ${RECORD_DIR:-./docker-data/recordings}:/data/recordings
+      - ${SETTINGS_DIR:-./docker-data/settings}:/data/settings
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8765/api/state"]
       interval: 10s
