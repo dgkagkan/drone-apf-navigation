@@ -57,6 +57,24 @@ If a visible GUI run reports `xhost: command not found`, install:
 sudo apt install -y x11-xserver-utils
 ```
 
+If Docker later reports permission denied for `/var/run/docker.sock`, add the
+current user to Docker's group:
+
+```bash
+sudo groupadd --force docker
+sudo usermod -aG docker "$USER"
+```
+
+Then log out of Ubuntu and log in again. Alternatively, run `newgrp docker` in
+the current terminal. Verify the new shell before building:
+
+```bash
+id -nG                         # must contain docker
+docker run --rm hello-world
+```
+
+Do not continue with `docker compose build` until `hello-world` succeeds.
+
 The commands above follow Docker's [Ubuntu installation guide](https://docs.docker.com/engine/install/ubuntu/),
 [Compose plugin guide](https://docs.docker.com/compose/install/linux/), and
 [Linux post-installation guide](https://docs.docker.com/engine/install/linux-postinstall/).

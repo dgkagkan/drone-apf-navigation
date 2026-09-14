@@ -153,14 +153,31 @@ sudo apt install -y docker-compose-plugin
 ```
 
 If Docker reports permission denied for `/var/run/docker.sock`, allow the
-current user to run Docker without `sudo`, then open a new terminal or run
-`newgrp docker`:
+current user to run Docker without `sudo`:
 
 ```bash
+sudo groupadd --force docker
 sudo usermod -aG docker "$USER"
+```
+
+The group change does not affect terminals that were already open. Either log
+out of Ubuntu and log in again, or activate the group in the current terminal
+with:
+
+```bash
 newgrp docker
+```
+
+Before running the project, verify that the current shell has the new group:
+
+```bash
+id -nG
 docker run --rm hello-world
 ```
+
+The output of `id -nG` must contain `docker`. If it does not, close the
+terminal, open a new one (or log out and back in), and repeat the check. Only
+after `hello-world` works should you run `docker compose build`.
 
 The `docker` group grants root-level access to the Docker daemon. Use it only
 on a trusted development machine. These installation and post-installation
