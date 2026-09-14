@@ -27,7 +27,17 @@ let gimbalTargetIds = [];
 let heldGimbal = null;
 let droneInteractionUntil = 0;
 const speedDrafts = new Map();
-const lidarRangeDrafts = new Map();
+let runtimeSettings = [];
+let runtimeSettingValues = {};
+let runtimeSettingTargets = [];
+let settingsTarget = "ALL";
+const runtimeSettingDrafts = new Map();
+let settingsDirty = false;
+let settingsPreviousTarget = "ALL";
+let settingsApplying = false;
+let settingsLoaded = false;
+let runtimeSettingProfiles = [];
+let selectedSettingsProfile = "";
 
 function droneColor(id) {
   let hash = 2166136261;
@@ -56,15 +66,24 @@ function batteryPresentation(drone) {
   };
 }
 
-async function api(path, payload) {
+async function api(path, payload, { silent = false } = {}) {
   const response = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   const result = await response.json();
-  toast(result.message || (result.ok ? "Command accepted" : "Command rejected"), !result.ok);
+  if (!silent) {
+    toast(result.message || (result.ok ? "Command accepted" : "Command rejected"), !result.ok);
+  }
   if (!response.ok) throw new Error(result.message);
+  return result;
+}
+
+async function getJson(path) {
+  const response = await fetch(path, { cache: "no-store" });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.message || `Request failed: ${response.status}`);
   return result;
 }
 
@@ -107,6 +126,7 @@ function render() {
   renderTargets();
   renderDrones();
   renderGimbalTargets();
+  renderSettingsTargets();
   renderCameras();
   drawMap();
 }
@@ -172,7 +192,6 @@ function renderDrones() {
     const routeCost = displayedRoute[0]?.route_total_cost;
     const speedCommand = speedDrafts.get(drone.drone_id) ??
       (drone.has_speed_override ? drone.speed_override_m_s.toFixed(1) : "15.0");
-    const lidarRange = lidarRangeDrafts.get(drone.drone_id) ?? drone.lidar_range_m.toFixed(0);
     const controlsDisabled = drone.connected && routingEnabled ? "" : "disabled";
     const takeoffDisabled = controlsDisabled === "" && drone.armed ? "" : "disabled";
     const forceDisarmDisabled = drone.connected && drone.armed ? "" : "disabled";
@@ -199,11 +218,6 @@ function renderDrones() {
         <button class="button ghost" data-clear-drone-speed="${drone.drone_id}" ${drone.has_speed_override && controlsDisabled === "" ? "" : "disabled"}>AUTO</button>
       </div>
       <div class="speed-source">${drone.has_speed_override ? `Override ${drone.speed_override_m_s.toFixed(1)} m/s` : "Using route speed · default 15.0 m/s"}</div>
-      <div class="lidar-control">
-        <label>ACTIVE LiDAR / APF RANGE <input type="range" min="70" max="300" step="10" value="${lidarRange}" data-drone-lidar-range="${drone.drone_id}" ${controlsDisabled}></label>
-        <output data-lidar-range-output="${drone.drone_id}">${lidarRange} m</output>
-        <button class="button primary" data-set-drone-lidar-range="${drone.drone_id}" ${controlsDisabled}>SET</button>
-      </div>
       <div class="drone-flags">
         <span class="flag ${drone.armed ? "on" : ""}">${drone.armed ? "ARMED" : "DISARMED"}</span>
         <span class="flag ${drone.offboard ? "on" : ""}">${drone.offboard ? "OFFBOARD" : "MANUAL"}</span>
@@ -272,6 +286,387 @@ function renderGimbalTargets() {
     "Hold a direction to move the selected gimbal. Release to stop.";
 }
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, character => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[character]));
+}
+
+function renderSettingsTargets() {
+  const select = document.getElementById("settings-target");
+  if (!select || !state) return;
+  const ids = state.drones.filter(drone => drone.connected)
+    .map(drone => drone.drone_id).sort();
+  const options = ["ALL", ...ids];
+  const currentOptions = [...select.options].map(option => option.value);
+  if (JSON.stringify(options) !== JSON.stringify(currentOptions)) {
+    select.innerHTML = `<option value="ALL">ALL CONNECTED DRONES</option>` +
+      ids.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join("");
+  }
+  if (settingsTarget !== "ALL" && !ids.includes(settingsTarget)) settingsTarget = "ALL";
+  select.value = settingsTarget;
+  const status = document.getElementById("settings-target-status");
+  if (status) {
+    status.textContent = settingsTarget === "ALL" ?
+      "Edit several values, then apply them together to every connected drone." :
+      `Edit several values, then apply them together to ${settingsTarget}.`;
+  }
+  updateSettingsFooter();
+}
+
+function renderSettingsProfiles() {
+  const select = document.getElementById("settings-profile-select");
+  if (!select) return;
+  const options = ["", ...runtimeSettingProfiles.map(profile => profile.name)];
+  const currentOptions = [...select.options].map(option => option.value);
+  if (JSON.stringify(options) !== JSON.stringify(currentOptions)) {
+    select.innerHTML = `<option value="">NO PROFILE SELECTED</option>` +
+      runtimeSettingProfiles.map(profile =>
+        `<option value="${escapeHtml(profile.name)}">${escapeHtml(profile.name)}</option>`
+      ).join("");
+  }
+  if (!runtimeSettingProfiles.some(profile => profile.name === selectedSettingsProfile)) {
+    selectedSettingsProfile = "";
+  }
+  select.value = selectedSettingsProfile;
+  const profile = runtimeSettingProfiles.find(item => item.name === selectedSettingsProfile);
+  const status = document.getElementById("settings-profile-status");
+  if (status) {
+    status.textContent = profile ?
+      `Saved ${profile.name} profile · ${Object.keys(profile.values || {}).length} values. Loading it creates unapplied changes; press APPLY CHANGES to send them.` :
+      "Loading a profile creates unapplied changes. Press APPLY CHANGES to send them to the selected drone(s).";
+  }
+  const loadButton = document.getElementById("load-settings-profile");
+  const deleteButton = document.getElementById("delete-settings-profile");
+  if (loadButton) loadButton.disabled = !profile || settingsApplying;
+  if (deleteButton) deleteButton.disabled = !profile || settingsApplying;
+}
+
+function settingTargetsForDisplay() {
+  if (settingsTarget !== "ALL") return [settingsTarget];
+  return runtimeSettingTargets.length ? runtimeSettingTargets :
+    (state?.drones || []).filter(drone => drone.connected).map(drone => drone.drone_id);
+}
+
+function settingValue(setting) {
+  if (setting.scope === "dashboard") {
+    return runtimeSettingValues.dashboard?.[setting.key] ?? setting.default;
+  }
+  const values = settingTargetsForDisplay()
+    .map(droneId => runtimeSettingValues[droneId]?.[setting.key])
+    .filter(value => value !== undefined && value !== null);
+  if (!values.length) return setting.default;
+  if (values.every(value => value === values[0])) return values[0];
+  return null;
+}
+
+function displayedSettingValue(setting) {
+  return runtimeSettingDrafts.has(setting.key) ?
+    runtimeSettingDrafts.get(setting.key) : settingValue(setting);
+}
+
+function draftMatchesCurrent(setting, rawValue) {
+  const current = settingValue(setting);
+  if (current === null || current === undefined) return false;
+  if (setting.type === "bool") return Boolean(rawValue) === Boolean(current);
+  if (setting.type === "choice") return String(rawValue) === String(current);
+  const value = Number(rawValue);
+  return Number.isFinite(value) && value === Number(current);
+}
+
+function updateSettingsFooter() {
+  const status = document.getElementById("settings-dirty-status");
+  const applyButton = document.getElementById("apply-settings");
+  const discardButton = document.getElementById("discard-settings");
+  const revertButton = document.getElementById("revert-settings");
+  const count = runtimeSettingDrafts.size;
+  settingsDirty = count > 0;
+  if (status) {
+    status.textContent = settingsDirty ?
+      `${count} unapplied change${count === 1 ? "" : "s"}` : "No unapplied changes";
+    status.classList.toggle("is-dirty", settingsDirty);
+  }
+  if (applyButton) applyButton.disabled = settingsApplying || !settingsDirty;
+  if (discardButton) discardButton.disabled = settingsApplying || !settingsDirty;
+  if (revertButton) revertButton.disabled = settingsApplying || !runtimeSettings.length;
+}
+
+function setSettingsError(message = "") {
+  const error = document.getElementById("settings-error");
+  if (!error) return;
+  error.textContent = message;
+  error.hidden = !message;
+}
+
+function clearInvalidSettingInputs() {
+  document.querySelectorAll("[data-setting-input].setting-invalid")
+    .forEach(input => input.classList.remove("setting-invalid"));
+}
+
+function markSettingsInvalid(keys, message) {
+  for (const key of keys) {
+    const input = document.querySelector(`[data-setting-input="${CSS.escape(key)}"]`);
+    if (input) input.classList.add("setting-invalid");
+  }
+  setSettingsError(message);
+}
+
+function renderSettings() {
+  const container = document.getElementById("settings-content");
+  if (!container) return;
+  if (!runtimeSettings.length) {
+    container.innerHTML = `<div class="settings-empty">No runtime settings are available yet.</div>`;
+    return;
+  }
+  const existingGroups = container.querySelectorAll("details.settings-group");
+  const openGroups = new Set([...existingGroups].filter(group => group.open)
+    .map(group => group.dataset.settingsCategory));
+  const hasRenderedGroups = existingGroups.length > 0;
+  const groups = new Map();
+  runtimeSettings.forEach(setting => {
+    if (!groups.has(setting.category)) groups.set(setting.category, []);
+    groups.get(setting.category).push(setting);
+  });
+  container.innerHTML = [...groups.entries()].map(([category, settings], index) => `
+    <details class="settings-group" data-settings-category="${escapeHtml(category)}" ${
+      (!hasRenderedGroups && index === 0) || openGroups.has(category) ? "open" : ""}>
+      <summary class="settings-group-title">
+        <span class="settings-folder-label"><strong>${escapeHtml(category)}</strong></span>
+        <span class="settings-folder-chevron" aria-hidden="true">⌄</span>
+      </summary>
+      <div class="settings-group-body">
+      ${settings.map(setting => {
+        const value = displayedSettingValue(setting);
+        const mixed = value === null;
+        const description = escapeHtml(setting.description);
+        const label = escapeHtml(setting.label);
+        const key = escapeHtml(setting.key);
+        const unit = setting.unit ? `<span class="setting-unit">${escapeHtml(setting.unit)}</span>` : "";
+        const control = setting.type === "bool" ?
+          `<label class="setting-switch"><input type="checkbox" data-setting-input="${key}" ${value ? "checked" : ""}><span></span></label>` :
+          setting.type === "choice" ?
+          `<select class="setting-select" data-setting-input="${key}">
+            ${setting.options.map(option => `<option value="${escapeHtml(option)}" ${String(value) === String(option) ? "selected" : ""}>${escapeHtml(option)}</option>`).join("")}
+          </select>` :
+          `<input class="setting-number" type="number" data-setting-input="${key}"
+            ${mixed ? "" : `value="${escapeHtml(value)}"`} ${mixed ? 'placeholder="Mixed"' : ""}
+            min="${setting.min}" max="${setting.max}" step="${setting.step}">`;
+        return `<div class="setting-row">
+          <div class="setting-name"><span>${label}</span>
+            <button class="setting-info" type="button" title="${description}" aria-label="Explain ${label}">ⓘ<span class="setting-tooltip">${description}</span></button>
+            ${mixed ? `<small>different values</small>` : ""}
+          </div>
+          <div class="setting-control">${control}${unit}</div>
+        </div>`;
+      }).join("")}
+      </div>
+    </details>`).join("");
+}
+
+async function loadSettings() {
+  try {
+    const [result, profilesResult] = await Promise.all([
+      getJson("/api/settings"),
+      getJson("/api/settings/profiles"),
+    ]);
+    runtimeSettings = result.settings || [];
+    runtimeSettingValues = result.values || {};
+    runtimeSettingTargets = result.targets || [];
+    runtimeSettingProfiles = profilesResult.profiles || [];
+    runtimeSettingDrafts.clear();
+    settingsDirty = false;
+    settingsLoaded = true;
+    setSettingsError();
+    renderSettingsTargets();
+    renderSettingsProfiles();
+    renderSettings();
+    updateSettingsFooter();
+    restartCameraStreams();
+  } catch (error) {
+    setSettingsError(error.message || "Could not load runtime settings");
+    document.getElementById("settings-content").innerHTML =
+      `<div class="settings-empty">Runtime settings could not be loaded.</div>`;
+  }
+}
+
+function profileValues() {
+  const values = {};
+  for (const setting of runtimeSettings) {
+    const value = displayedSettingValue(setting);
+    if (value === null || value === undefined || value === "") continue;
+    if (setting.type === "bool") values[setting.key] = Boolean(value);
+    else if (setting.type === "choice" && typeof setting.options[0] === "number") {
+      values[setting.key] = Number(value);
+    } else if (setting.type === "double" || setting.type === "integer") {
+      values[setting.key] = Number(value);
+    } else {
+      values[setting.key] = String(value);
+    }
+  }
+  return values;
+}
+
+async function saveSettingsProfile() {
+  const input = document.getElementById("settings-profile-name");
+  const name = input.value.trim();
+  if (!name) {
+    setSettingsError("Enter a profile name before saving.");
+    input.focus();
+    return;
+  }
+  const values = profileValues();
+  if (!Object.keys(values).length) {
+    setSettingsError("No complete runtime settings are available to save.");
+    return;
+  }
+  try {
+    await api("/api/settings/profiles/save", { name, values });
+    selectedSettingsProfile = name;
+    await loadSettingProfiles();
+    renderSettingsProfiles();
+  } catch (error) {
+    setSettingsError(error.message || "Could not save settings profile");
+  }
+}
+
+async function loadSettingProfiles() {
+  const result = await getJson("/api/settings/profiles");
+  runtimeSettingProfiles = result.profiles || [];
+}
+
+function loadSettingsProfile() {
+  const profile = runtimeSettingProfiles.find(item => item.name === selectedSettingsProfile);
+  if (!profile) return;
+  if (settingsDirty && !window.confirm(
+    "Discard the current unapplied changes and load this profile?")) return;
+  runtimeSettingDrafts.clear();
+  for (const setting of runtimeSettings) {
+    if (!Object.prototype.hasOwnProperty.call(profile.values || {}, setting.key)) continue;
+    const value = profile.values[setting.key];
+    if (!draftMatchesCurrent(setting, value)) runtimeSettingDrafts.set(setting.key, value);
+  }
+  setSettingsError();
+  renderSettings();
+  updateSettingsFooter();
+  renderSettingsProfiles();
+}
+
+async function deleteSettingsProfile() {
+  const profile = runtimeSettingProfiles.find(item => item.name === selectedSettingsProfile);
+  if (!profile || !window.confirm(`Delete the '${profile.name}' settings profile?`)) return;
+  try {
+    await api("/api/settings/profiles/delete", { name: profile.name });
+    selectedSettingsProfile = "";
+    document.getElementById("settings-profile-name").value = "";
+    await loadSettingProfiles();
+    renderSettingsProfiles();
+  } catch (error) {
+    setSettingsError(error.message || "Could not delete settings profile");
+  }
+}
+
+function openSettings() {
+  const modal = document.getElementById("settings-modal");
+  modal.hidden = false;
+  settingsPreviousTarget = settingsTarget;
+  renderSettingsTargets();
+  if (settingsLoaded) renderSettings();
+  else loadSettings();
+  document.getElementById("close-settings").focus();
+}
+
+function closeSettings() {
+  closeSettingsConfirm();
+  document.getElementById("settings-modal").hidden = true;
+}
+
+function requestCloseSettings() {
+  if (!settingsDirty || settingsApplying) {
+    closeSettings();
+    return;
+  }
+  openSettingsConfirm();
+}
+
+function openSettingsConfirm() {
+  const confirm = document.getElementById("settings-confirm");
+  confirm.hidden = false;
+  document.getElementById("confirm-apply-settings").focus();
+}
+
+function closeSettingsConfirm() {
+  const confirm = document.getElementById("settings-confirm");
+  if (confirm) confirm.hidden = true;
+}
+
+function discardSettings() {
+  runtimeSettingDrafts.clear();
+  settingsDirty = false;
+  setSettingsError();
+  renderSettings();
+  updateSettingsFooter();
+}
+
+function revertSettingsToDefaults() {
+  setSettingsError();
+  for (const setting of runtimeSettings) {
+    if (draftMatchesCurrent(setting, setting.default)) runtimeSettingDrafts.delete(setting.key);
+    else runtimeSettingDrafts.set(setting.key, setting.default);
+  }
+  renderSettings();
+  updateSettingsFooter();
+}
+
+async function applySettings(closeAfter = false) {
+  if (!runtimeSettingDrafts.size || settingsApplying) {
+    if (closeAfter && !settingsDirty) closeSettings();
+    return;
+  }
+  setSettingsError();
+  clearInvalidSettingInputs();
+  const changes = [];
+  for (const [key, rawValue] of runtimeSettingDrafts) {
+    const setting = runtimeSettings.find(candidate => candidate.key === key);
+    if (!setting) continue;
+    const value = setting.type === "bool" ? Boolean(rawValue) :
+      (setting.type === "choice" ?
+        (typeof setting.options[0] === "number" ? Number(rawValue) : String(rawValue)) :
+        Number(rawValue));
+    const numericSetting = setting.type === "double" || setting.type === "integer";
+    if (numericSetting &&
+        (!Number.isFinite(value) || value < setting.min || value > setting.max)) {
+      markSettingsInvalid([key], `${setting.label}: enter a value from ${setting.min} to ${setting.max}`);
+      return;
+    }
+    if (setting.type === "integer" && !Number.isInteger(value)) {
+      markSettingsInvalid([key], `${setting.label}: enter a whole number`);
+      return;
+    }
+    if (setting.type === "choice" && !setting.options.some(option =>
+      String(option) === String(value))) {
+      markSettingsInvalid([key], `${setting.label}: choose one of ${setting.options.join(", ")}`);
+      return;
+    }
+    changes.push({ key, value });
+  }
+  if (!changes.length) return;
+  settingsApplying = true;
+  updateSettingsFooter();
+  try {
+    await api("/api/settings", { target: settingsTarget, changes }, { silent: true });
+    toast("Runtime settings applied");
+    await loadSettings();
+    closeSettingsConfirm();
+    if (closeAfter) closeSettings();
+  } catch (error) {
+    markSettingsInvalid(changes.map(change => change.key),
+      error.message || "Could not apply runtime settings");
+  } finally {
+    settingsApplying = false;
+    updateSettingsFooter();
+  }
+}
+
 function startCamera(id) {
   const image = document.getElementById(`camera-${id}`);
   const label = image.parentElement.querySelector(".camera-label");
@@ -302,11 +697,22 @@ function startCamera(id) {
     } finally {
       if (nextUrl) URL.revokeObjectURL(nextUrl);
     }
-  }, DASHBOARD_INTERVAL_MS);
+  }, cameraPollingIntervalMs());
   return () => {
     stop();
     if (displayedUrl) URL.revokeObjectURL(displayedUrl);
   };
+}
+
+function cameraPollingIntervalMs() {
+  const fps = Number(runtimeSettingValues.dashboard?.camera_fps || DASHBOARD_RATE_HZ);
+  return 1000 / Math.max(1, Math.min(DASHBOARD_RATE_HZ, fps));
+}
+
+function restartCameraStreams() {
+  if (!cameraIds.length) return;
+  cameraCleanups.forEach(cleanup => cleanup());
+  cameraCleanups = cameraIds.map(id => startCamera(id));
 }
 
 async function saveCameraSnapshot(id, button) {
@@ -908,16 +1314,40 @@ droneGrid.addEventListener("input", event => {
   if (event.target.dataset.droneSpeed) {
     speedDrafts.set(event.target.dataset.droneSpeed, event.target.value);
   }
-  if (event.target.dataset.droneLidarRange) {
-    const droneId = event.target.dataset.droneLidarRange;
-    lidarRangeDrafts.set(droneId, event.target.value);
-    const output = droneGrid.querySelector(`[data-lidar-range-output="${droneId}"]`);
-    if (output) output.value = `${event.target.value} m`;
-  }
 });
 
 document.addEventListener("click", event => {
   const target = event.target;
+  if (target.closest?.("#apply-settings")) {
+    applySettings().catch(() => {});
+    return;
+  }
+  if (target.closest?.("#discard-settings")) {
+    discardSettings();
+    return;
+  }
+  if (target.closest?.("#revert-settings")) {
+    revertSettingsToDefaults();
+    return;
+  }
+  if (target.closest?.("#confirm-keep-editing")) {
+    closeSettingsConfirm();
+    return;
+  }
+  if (target.closest?.("#confirm-discard-settings")) {
+    discardSettings();
+    closeSettings();
+    return;
+  }
+  if (target.closest?.("#confirm-apply-settings")) {
+    applySettings(true).catch(() => {});
+    return;
+  }
+  const closeSettingsButton = target.closest?.("[data-close-settings]");
+  if (closeSettingsButton) {
+    requestCloseSettings();
+    return;
+  }
   if (target.dataset.cameraSnapshot) {
     saveCameraSnapshot(target.dataset.cameraSnapshot, target);
     return;
@@ -958,13 +1388,6 @@ document.addEventListener("click", event => {
       .then(() => { speedDrafts.delete(target.dataset.clearDroneSpeed); droneInteractionUntil = 0; })
       .catch(() => {});
   }
-  if (target.dataset.setDroneLidarRange) {
-    const droneId = target.dataset.setDroneLidarRange;
-    const input = document.querySelector(`[data-drone-lidar-range="${droneId}"]`);
-    api("/api/drone/lidar-range", { drone_id: droneId, lidar_range_m: Number(input.value) })
-      .then(() => { lidarRangeDrafts.delete(droneId); droneInteractionUntil = 0; })
-      .catch(() => {});
-  }
   if (target.dataset.removeTarget) api("/api/targets/remove", { target_id: Number(target.dataset.removeTarget) }).catch(() => {});
 });
 
@@ -990,6 +1413,49 @@ window.addEventListener("blur", () => releaseGimbal());
 
 document.getElementById("add-target").addEventListener("click", () => {
   addCurrentTarget().catch(() => {});
+});
+document.getElementById("open-settings").addEventListener("click", openSettings);
+document.getElementById("close-settings").addEventListener("click", requestCloseSettings);
+document.getElementById("settings-content").addEventListener("input", event => {
+  const input = event.target.closest?.("[data-setting-input]");
+  if (!input) return;
+  const setting = runtimeSettings.find(candidate => candidate.key === input.dataset.settingInput);
+  if (!setting) return;
+  input.classList.remove("setting-invalid");
+  setSettingsError();
+  const value = setting.type === "bool" ? input.checked : input.value;
+  if (draftMatchesCurrent(setting, value)) runtimeSettingDrafts.delete(setting.key);
+  else runtimeSettingDrafts.set(setting.key, value);
+  updateSettingsFooter();
+});
+document.getElementById("settings-target").addEventListener("change", event => {
+  if (settingsDirty) {
+    event.target.value = settingsPreviousTarget;
+    toast("Apply or discard the current changes before changing the target", true);
+    return;
+  }
+  settingsTarget = event.target.value;
+  settingsPreviousTarget = settingsTarget;
+  renderSettings();
+});
+document.getElementById("settings-profile-select").addEventListener("change", event => {
+  selectedSettingsProfile = event.target.value;
+  const profile = runtimeSettingProfiles.find(item => item.name === selectedSettingsProfile);
+  document.getElementById("settings-profile-name").value = profile?.name || "";
+  renderSettingsProfiles();
+});
+document.getElementById("load-settings-profile").addEventListener("click", loadSettingsProfile);
+document.getElementById("save-settings-profile").addEventListener("click", () => {
+  saveSettingsProfile().catch(() => {});
+});
+document.getElementById("delete-settings-profile").addEventListener("click", () => {
+  deleteSettingsProfile().catch(() => {});
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && !document.getElementById("settings-modal").hidden) {
+    if (!document.getElementById("settings-confirm").hidden) closeSettingsConfirm();
+    else requestCloseSettings();
+  }
 });
 document.getElementById("choose-photo-folder").addEventListener("click", () => {
   chooseMediaFolder("photo");

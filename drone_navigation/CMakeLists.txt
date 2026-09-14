@@ -14,6 +14,7 @@ find_package(ament_cmake REQUIRED)
 find_package(drone_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -40,7 +41,7 @@ add_executable(apf_safety_node src/apf_safety_node.cpp)
 target_compile_features(apf_safety_node PRIVATE cxx_std_17)
 target_link_libraries(apf_safety_node apf_solver)
 ament_target_dependencies(apf_safety_node
-  drone_interfaces rclcpp sensor_msgs std_msgs std_srvs)
+  drone_interfaces rcl_interfaces rclcpp sensor_msgs std_msgs std_srvs)
 
 add_executable(apf_visualizer_node src/apf_visualizer_node.cpp)
 target_compile_features(apf_visualizer_node PRIVATE cxx_std_17)
@@ -56,7 +57,7 @@ ament_target_dependencies(command_mux_node
 add_executable(lidar_processor_node src/lidar_processor_node.cpp)
 target_compile_features(lidar_processor_node PRIVATE cxx_std_17)
 ament_target_dependencies(lidar_processor_node
-  geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
+  geometry_msgs rcl_interfaces rclcpp sensor_msgs tf2 tf2_ros)
 
 add_executable(route_executor_node src/route_executor_node.cpp)
 target_compile_features(route_executor_node PRIVATE cxx_std_17)
@@ -66,7 +67,7 @@ ament_target_dependencies(route_executor_node
 add_executable(navigation_server_node src/navigation_server_node.cpp)
 target_compile_features(navigation_server_node PRIVATE cxx_std_17)
 ament_target_dependencies(navigation_server_node
-  drone_interfaces geometry_msgs rclcpp rclcpp_action std_msgs)
+  drone_interfaces geometry_msgs rcl_interfaces rclcpp rclcpp_action std_msgs)
 
 # Lightweight onboard mapping relay. It only filters and timestamp-transforms
 # clouds; the stateful OctoMap fusion remains a PC-only executable below.

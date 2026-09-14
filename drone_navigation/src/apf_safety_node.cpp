@@ -15,6 +15,7 @@
 #include <drone_interfaces/msg/motion_command.hpp>
 #include <drone_interfaces/msg/vehicle_state.hpp>
 #include <drone_interfaces/srv/set_apf_mode.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
@@ -88,20 +89,147 @@ public:
       "/apf/obstacles_sector_ignored", rclcpp::SensorDataQoS().keep_last(1));
     timer_ = create_wall_timer(
       std::chrono::milliseconds(20), std::bind(&ApfSafetyNode::onTimer, this));
+    parameter_callback_handle_ = add_on_set_parameters_callback(
+      std::bind(&ApfSafetyNode::onParametersSet, this, std::placeholders::_1));
 
     publishModeTelemetry();
     RCLCPP_INFO(get_logger(), "APF safety ready in '%s' mode", active_mode_.c_str());
   }
 
 private:
+  rcl_interfaces::msg::SetParametersResult onParametersSet(
+    const std::vector<rclcpp::Parameter> & parameters)
+  {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    ApfParameters updated;
+    double updated_lidar_range = 0.0;
+    bool updated_avoidance_enabled = true;
+    double updated_obstacle_timeout = 0.0;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      updated = active_parameters_;
+      updated_lidar_range = active_lidar_range_m_;
+      updated_avoidance_enabled = avoidance_enabled_;
+      updated_obstacle_timeout = obstacle_timeout_s_;
+
+      for (const auto & parameter : parameters) {
+        const auto & name = parameter.get_name();
+        if (name == "obstacle_influence_radius") {
+          updated_lidar_range = parameter.as_double();
+          updated.obstacle_influence_radius_m = updated_lidar_range;
+        } else if (name == "fw_avoid_trigger_dist") {
+          updated.fw_avoid_trigger_distance_m = parameter.as_double();
+        } else if (name == "mc_attractive_gain") {
+          updated.mc_attractive_gain = parameter.as_double();
+        } else if (name == "fw_attractive_gain") {
+          updated.fw_attractive_gain = parameter.as_double();
+        } else if (name == "mc_repulsive_gain") {
+          updated.mc_repulsive_gain = parameter.as_double();
+        } else if (name == "fw_repulsive_gain") {
+          updated.fw_repulsive_gain = parameter.as_double();
+        } else if (name == "repulsive_distance_power") {
+          updated.repulsive_distance_power = parameter.as_double();
+        } else if (name == "fw_max_avoid_angle_deg") {
+          updated.fw_max_avoid_yaw_rad = parameter.as_double() * 0.017453292519943295;
+        } else if (name == "fw_max_avoid_pitch_deg") {
+          updated.fw_max_avoid_pitch_rad = parameter.as_double() * 0.017453292519943295;
+        } else if (name == "vertical_escape_pitch_gain") {
+          updated.vertical_escape_pitch_gain = parameter.as_double();
+        } else if (name == "apf_clearance_radius") {
+          updated.clearance_radius_m = parameter.as_double();
+        } else if (name == "mc_speed") {
+          updated.mc_max_horizontal_speed_m_s = parameter.as_double();
+        } else if (name == "mc_climb_speed") {
+          updated.mc_max_climb_speed_m_s = parameter.as_double();
+        } else if (name == "avoidance_clear_hold_time") {
+          updated.clear_hold_time_s = parameter.as_double();
+        } else if (name == "sector_margin_min_deg") {
+          updated.sector_margin_min_rad = parameter.as_double() * 0.017453292519943295;
+        } else if (name == "sector_margin_max_deg") {
+          updated.sector_margin_max_rad = parameter.as_double() * 0.017453292519943295;
+        } else if (name == "sector_margin_speed_min") {
+          updated.sector_margin_speed_min_m_s = parameter.as_double();
+        } else if (name == "sector_margin_speed_max") {
+          updated.sector_margin_speed_max_m_s = parameter.as_double();
+        } else if (name == "sector_direction_min_speed") {
+          updated.direction_min_speed_m_s = parameter.as_double();
+        } else if (name == "emergency_radius") {
+          updated.emergency_radius_m = parameter.as_double();
+        } else if (name == "avoidance_enabled") {
+          updated_avoidance_enabled = parameter.as_bool();
+        } else if (name == "obstacle_timeout_s") {
+          updated_obstacle_timeout = parameter.as_double();
+        }
+      }
+
+      if (!std::isfinite(updated_lidar_range) || updated_lidar_range < 1.0 ||
+        updated_lidar_range > 300.0)
+      {
+        result.successful = false;
+        result.reason = "obstacle influence radius must be between 1 and 300 m";
+      } else if (!std::isfinite(updated.fw_avoid_trigger_distance_m) ||
+        updated.fw_avoid_trigger_distance_m < 1.0 ||
+        updated.fw_avoid_trigger_distance_m > updated_lidar_range)
+      {
+        result.successful = false;
+        result.reason = "fixed-wing avoidance trigger must be within the APF radius";
+      } else if (!std::isfinite(updated.sector_margin_min_rad) ||
+        !std::isfinite(updated.sector_margin_max_rad) ||
+        updated.sector_margin_min_rad < 0.0 ||
+        updated.sector_margin_max_rad < updated.sector_margin_min_rad ||
+        updated.sector_margin_max_rad > 3.14159265358979323846)
+      {
+        result.successful = false;
+        result.reason = "sector margins must be ordered and within 0-180 degrees";
+      } else if (!std::isfinite(updated.sector_margin_speed_min_m_s) ||
+        !std::isfinite(updated.sector_margin_speed_max_m_s) ||
+        updated.sector_margin_speed_min_m_s < 0.0 ||
+        updated.sector_margin_speed_max_m_s <= updated.sector_margin_speed_min_m_s)
+      {
+        result.successful = false;
+        result.reason = "sector margin speed limits must be ordered";
+      } else if (!std::isfinite(updated_obstacle_timeout) || updated_obstacle_timeout < 0.1 ||
+        updated_obstacle_timeout > 10.0)
+      {
+        result.successful = false;
+        result.reason = "obstacle timeout must be between 0.1 and 10 seconds";
+      }
+
+      if (result.successful) {
+        updated.obstacle_influence_radius_m = updated_lidar_range;
+        profiles_[active_mode_] = updated;
+        active_parameters_ = updated;
+        active_lidar_range_m_ = updated_lidar_range;
+        avoidance_enabled_ = updated_avoidance_enabled;
+        obstacle_timeout_s_ = updated_obstacle_timeout;
+        solver_.setParameters(active_parameters_);
+        if (!avoidance_enabled_) solver_.reset();
+      }
+    }
+    if (result.successful) {
+      RCLCPP_INFO(get_logger(), "Runtime APF parameter update accepted");
+    }
+    return result;
+  }
+
   void setEnabled(
     const SetBool::Request::SharedPtr request,
     const SetBool::Response::SharedPtr response)
   {
-    avoidance_enabled_ = request->data;
-    if (!avoidance_enabled_) solver_.reset();
+    const bool enabled = request->data;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      avoidance_enabled_ = enabled;
+      if (!avoidance_enabled_) solver_.reset();
+    }
+    try {
+      set_parameter(rclcpp::Parameter("avoidance_enabled", enabled));
+    } catch (const std::exception & exception) {
+      RCLCPP_WARN(get_logger(), "Could not synchronize avoidance_enabled parameter: %s", exception.what());
+    }
     response->success = true;
-    response->message = avoidance_enabled_ ? "APF enabled" : "APF disabled";
+    response->message = enabled ? "APF enabled" : "APF disabled";
     publishModeTelemetry();
     RCLCPP_INFO(get_logger(), "%s", response->message.c_str());
   }
@@ -115,6 +243,7 @@ private:
       requested_mode.begin(), requested_mode.end(), requested_mode.begin(),
       [](unsigned char character) {return static_cast<char>(std::tolower(character));});
 
+    std::lock_guard<std::mutex> lock(mutex_);
     response->active_mode = active_mode_;
     const auto profile = profiles_.find(requested_mode);
     if (profile == profiles_.end()) {
@@ -194,7 +323,6 @@ private:
   {
     auto parameters = profiles_.at(active_mode_);
     parameters.obstacle_influence_radius_m = active_lidar_range_m_;
-    parameters.fw_avoid_trigger_distance_m = std::max(1.0, active_lidar_range_m_ - 10.0);
     active_parameters_ = parameters;
     solver_.setParameters(parameters);
   }
@@ -211,8 +339,14 @@ private:
         message->data, min_range_m, max_range_m);
       return;
     }
-    active_lidar_range_m_ = message->data;
-    applyActiveParameters();
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      active_lidar_range_m_ = message->data;
+      profiles_[active_mode_].obstacle_influence_radius_m = message->data;
+      profiles_[active_mode_].fw_avoid_trigger_distance_m =
+        std::max(1.0, message->data - 10.0);
+      applyActiveParameters();
+    }
     RCLCPP_INFO(
       get_logger(), "APF influence range set to %.1f m (FW trigger %.1f m)",
       active_lidar_range_m_, active_lidar_range_m_ - 10.0);
@@ -354,6 +488,11 @@ private:
     bool have_command = false;
     bool have_state = false;
     bool have_obstacles = false;
+    ApfParameters active_parameters;
+    double obstacle_timeout_s = 0.5;
+    double debug_cloud_publish_period_s = 0.2;
+    bool avoidance_enabled = true;
+    std::string active_mode;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       command = command_;
@@ -364,6 +503,11 @@ private:
       have_command = have_command_;
       have_state = have_state_;
       have_obstacles = have_obstacles_;
+      active_parameters = active_parameters_;
+      obstacle_timeout_s = obstacle_timeout_s_;
+      debug_cloud_publish_period_s = debug_cloud_publish_period_s_;
+      avoidance_enabled = avoidance_enabled_;
+      active_mode = active_mode_;
     }
 
     if (!have_command || !have_state || !command.active ||
@@ -373,12 +517,13 @@ private:
       inactive.header.stamp = now();
       inactive.header.frame_id = "map";
       safe_pub_->publish(inactive);
+      std::lock_guard<std::mutex> lock(mutex_);
       solver_.reset();
       return;
     }
 
     std::vector<Vec3> relative_points;
-    if (have_obstacles && (now() - obstacles_received).seconds() <= obstacle_timeout_s_) {
+    if (have_obstacles && (now() - obstacles_received).seconds() <= obstacle_timeout_s) {
       relative_points.reserve(map_points.size());
       for (const auto & point : map_points) {
         relative_points.push_back({
@@ -386,7 +531,7 @@ private:
           point.y - state.position_enu.y,
           point.z - state.position_enu.z});
       }
-    } else if (avoidance_enabled_) {
+    } else if (avoidance_enabled) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 2000, "APF has no fresh obstacle cloud");
     }
@@ -400,16 +545,18 @@ private:
       std::isfinite(state.heading_ned_rad) ?
       half_pi - state.heading_ned_rad : std::numeric_limits<double>::quiet_NaN();
     drone_navigation::ApfResult result;
-    if (avoidance_enabled_ && !relative_points.empty()) {
+    if (avoidance_enabled && !relative_points.empty()) {
       const auto mode = command.vehicle_mode == MotionCommand::MODE_FIXED_WING ?
         FlightMode::FIXED_WING : FlightMode::MULTICOPTER;
+      std::lock_guard<std::mutex> lock(mutex_);
       result = solver_.update(
-        desired, current_velocity, heading_enu_rad, relative_points,
-        mode, now().seconds());
+          desired, current_velocity, heading_enu_rad, relative_points,
+          mode, now().seconds());
     } else {
+      std::lock_guard<std::mutex> lock(mutex_);
       solver_.reset();
       result.active_sector = calculateActiveSector(
-        current_velocity, desired, heading_enu_rad, active_parameters_);
+        current_velocity, desired, heading_enu_rad, active_parameters);
       result.safe_velocity = desired;
       const double speed = std::sqrt(
         desired.x * desired.x + desired.y * desired.y + desired.z * desired.z);
@@ -418,7 +565,7 @@ private:
       }
     }
 
-    if ((now() - last_debug_cloud_publish_).seconds() >= debug_cloud_publish_period_s_) {
+    if ((now() - last_debug_cloud_publish_).seconds() >= debug_cloud_publish_period_s) {
       const auto debug_header = command.header;
       used_obstacles_pub_->publish(makeDebugCloud(
         debug_header, result.used_obstacles, state));
@@ -438,7 +585,7 @@ private:
     telemetry.vehicle_mode = command.vehicle_mode;
     telemetry.command_source = command.source;
     telemetry.avoidance_active = result.avoidance_active;
-    telemetry.active_mode = active_mode_;
+    telemetry.active_mode = active_mode;
     telemetry.nearest_path_obstacle_distance_m =
       std::isfinite(result.nearest_path_obstacle_distance_m) ?
       result.nearest_path_obstacle_distance_m : -1.0;
@@ -457,8 +604,8 @@ private:
     telemetry.sector_half_width_rad = result.active_sector.half_width_rad;
     telemetry.sector_margin_rad = result.active_sector.margin_rad;
     telemetry.emergency_radius_m = std::min(
-      active_parameters_.emergency_radius_m,
-      active_parameters_.obstacle_influence_radius_m);
+      active_parameters.emergency_radius_m,
+      active_parameters.obstacle_influence_radius_m);
     telemetry.current_direction_uses_fallback =
       result.active_sector.current_uses_fallback;
     telemetry.desired_direction_uses_fallback =
@@ -498,6 +645,7 @@ private:
   rclcpp::Publisher<ApfTelemetry>::SharedPtr telemetry_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr used_obstacles_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr ignored_obstacles_pub_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr parameter_callback_handle_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

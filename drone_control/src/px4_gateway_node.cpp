@@ -1,9 +1,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <exception>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <vector>
 
 #include <drone_interfaces/msg/motion_command.hpp>
 #include <drone_interfaces/msg/vehicle_state.hpp>
@@ -15,6 +18,7 @@
 #include <px4_msgs/msg/vehicle_land_detected.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/vehicle_status.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 using MotionCommand = drone_interfaces::msg::MotionCommand;
@@ -79,12 +83,70 @@ public:
     vehicle_command_pub_ = create_publisher<VC>("/fmu/in/vehicle_command", 10);
     timer_ = create_wall_timer(
       std::chrono::milliseconds(20), std::bind(&Px4GatewayNode::onTimer, this));
+    parameter_callback_handle_ = add_on_set_parameters_callback(
+      std::bind(&Px4GatewayNode::onParametersSet, this, std::placeholders::_1));
 
     RCLCPP_INFO(
       get_logger(), "PX4 gateway ready; sole owner of /fmu/in setpoints and commands");
   }
 
 private:
+  rcl_interfaces::msg::SetParametersResult onParametersSet(
+    const std::vector<rclcpp::Parameter> & parameters)
+  {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    try {
+      std::lock_guard<std::mutex> lock(config_mutex_);
+      double fw_lookahead = fw_lookahead_m_;
+      double max_horizontal_speed = max_horizontal_speed_m_s_;
+      double max_vertical_speed = max_vertical_speed_m_s_;
+      double minimum_altitude = minimum_altitude_m_;
+      for (const auto & parameter : parameters) {
+        if (parameter.get_name() == "fw_lookahead_m") fw_lookahead = parameter.as_double();
+        else if (parameter.get_name() == "max_horizontal_speed_m_s") {
+          max_horizontal_speed = parameter.as_double();
+        } else if (parameter.get_name() == "max_vertical_speed_m_s") {
+          max_vertical_speed = parameter.as_double();
+        } else if (parameter.get_name() == "minimum_altitude_m") {
+          minimum_altitude = parameter.as_double();
+        }
+      }
+      if (!std::isfinite(fw_lookahead) || fw_lookahead < 5.0 || fw_lookahead > 300.0) {
+        result.successful = false;
+        result.reason = "fixed-wing lookahead must be between 5 and 300 m";
+      } else if (!std::isfinite(max_horizontal_speed) || max_horizontal_speed < 1.0 ||
+        max_horizontal_speed > 100.0)
+      {
+        result.successful = false;
+        result.reason = "horizontal speed limit must be between 1 and 100 m/s";
+      } else if (!std::isfinite(max_vertical_speed) || max_vertical_speed < 0.2 ||
+        max_vertical_speed > 30.0)
+      {
+        result.successful = false;
+        result.reason = "vertical speed limit must be between 0.2 and 30 m/s";
+      } else if (!std::isfinite(minimum_altitude) || minimum_altitude < 0.0 ||
+        minimum_altitude > 100.0)
+      {
+        result.successful = false;
+        result.reason = "minimum altitude must be between 0 and 100 m";
+      }
+      if (result.successful) {
+        fw_lookahead_m_ = fw_lookahead;
+        max_horizontal_speed_m_s_ = max_horizontal_speed;
+        max_vertical_speed_m_s_ = max_vertical_speed;
+        minimum_altitude_m_ = minimum_altitude;
+      }
+    } catch (const std::exception & exception) {
+      result.successful = false;
+      result.reason = exception.what();
+    }
+    if (result.successful) {
+      RCLCPP_INFO(get_logger(), "Runtime PX4 parameter update accepted");
+    }
+    return result;
+  }
+
   static float nan()
   {
     return std::numeric_limits<float>::quiet_NaN();
@@ -221,17 +283,28 @@ private:
 
   void publishSetpoint(const MotionCommand & command)
   {
+    double fw_lookahead_m = 40.0;
+    double max_horizontal_speed_m_s = 25.0;
+    double max_vertical_speed_m_s = 5.0;
+    double minimum_altitude_m = 0.5;
+    {
+      std::lock_guard<std::mutex> lock(config_mutex_);
+      fw_lookahead_m = fw_lookahead_m_;
+      max_horizontal_speed_m_s = max_horizontal_speed_m_s_;
+      max_vertical_speed_m_s = max_vertical_speed_m_s_;
+      minimum_altitude_m = minimum_altitude_m_;
+    }
     double east_velocity = command.velocity_enu.x;
     double north_velocity = command.velocity_enu.y;
     double up_velocity = command.velocity_enu.z;
     const double horizontal_speed = std::hypot(east_velocity, north_velocity);
-    if (horizontal_speed > max_horizontal_speed_m_s_) {
-      const double scale = max_horizontal_speed_m_s_ / horizontal_speed;
+    if (horizontal_speed > max_horizontal_speed_m_s) {
+      const double scale = max_horizontal_speed_m_s / horizontal_speed;
       east_velocity *= scale;
       north_velocity *= scale;
     }
     up_velocity = std::clamp(
-      up_velocity, -max_vertical_speed_m_s_, max_vertical_speed_m_s_);
+      up_velocity, -max_vertical_speed_m_s, max_vertical_speed_m_s);
 
     const bool fixed_wing = command.vehicle_mode == MotionCommand::MODE_FIXED_WING;
     const bool use_fw_position = fixed_wing && command.hold_altitude && have_position_ &&
@@ -254,16 +327,16 @@ private:
         std::max(target_altitude_local_m, current_altitude) :
         target_altitude_local_m;
       const double projected_altitude = std::max(
-        minimum_altitude_m_,
-        altitude_base + fw_lookahead_m_ * up_velocity / speed);
+        minimum_altitude_m,
+        altitude_base + fw_lookahead_m * up_velocity / speed);
       setpoint.position = {
-        static_cast<float>(position_.x + fw_lookahead_m_ * north_velocity / speed),
-        static_cast<float>(position_.y + fw_lookahead_m_ * east_velocity / speed),
+        static_cast<float>(position_.x + fw_lookahead_m * north_velocity / speed),
+        static_cast<float>(position_.y + fw_lookahead_m * east_velocity / speed),
         static_cast<float>(-projected_altitude)};
     } else if (use_mc_altitude_hold) {
       setpoint.position = {
         nan(), nan(),
-        static_cast<float>(-std::max(minimum_altitude_m_, target_altitude_local_m))};
+        static_cast<float>(-std::max(minimum_altitude_m, target_altitude_local_m))};
     } else {
       setpoint.position = {nan(), nan(), nan()};
     }
@@ -293,6 +366,7 @@ private:
   double map_origin_east_m_ {0.0};
   double map_origin_north_m_ {0.0};
   double map_origin_up_m_ {0.0};
+  std::mutex config_mutex_;
   uint8_t target_system_ {1};
   VS status_;
   px4_msgs::msg::VehicleLandDetected land_detected_;
@@ -321,6 +395,7 @@ private:
   rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr setpoint_pub_;
   rclcpp::Publisher<VC>::SharedPtr vehicle_command_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr parameter_callback_handle_;
 };
 
 int main(int argc, char * argv[])

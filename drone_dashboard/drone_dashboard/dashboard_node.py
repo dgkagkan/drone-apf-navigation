@@ -28,11 +28,15 @@ from drone_interfaces.srv import (
 )
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path as NavigationPath
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.parameter import Parameter
+from rclpy.parameter_client import AsyncParameterClient
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
+from std_srvs.srv import SetBool
 
 
 COMMANDS = {
@@ -63,6 +67,608 @@ ASSIGNMENT_STATES = {
 CAMERA_STALE_SEC = 3.0
 MAX_RECORDING_BYTES = 512 * 1024 * 1024
 FOLDER_PICKER_TIMEOUT_SEC = 300
+RUNTIME_PROFILE_VERSION = 1
+DEFAULT_SETTINGS_PROFILE_PATH = (
+    Path.home() / ".config" / "drone-apf-navigation" / "runtime_profiles.json"
+)
+CAMERA_FPS_OPTIONS = (5.0, 15.0, 30.0, 60.0)
+CAMERA_RESOLUTIONS = {
+    "320x180": (320, 180),
+    "640x360": (640, 360),
+    "960x540": (960, 540),
+}
+
+
+# These are intentionally limited to values that the running nodes can apply
+# safely. Startup-only values such as topic names, LiDAR FOV/samples, map
+# resolution, and frame IDs stay in launch/configuration files.
+RUNTIME_SETTING_DEFINITIONS = [
+    {
+        "key": "obstacle_influence_radius",
+        "label": "Obstacle avoidance range",
+        "node": "apf_safety",
+        "parameter": "obstacle_influence_radius",
+        "type": "double",
+        "default": 70.0,
+        "min": 1.0,
+        "max": 300.0,
+        "step": 1.0,
+        "unit": "m",
+        "category": "Obstacle avoidance",
+        "description": "Maximum distance at which a detected obstacle contributes to the APF safety correction.",
+    },
+    {
+        "key": "fw_avoid_trigger_dist",
+        "label": "Fixed-wing avoidance activation distance",
+        "node": "apf_safety",
+        "parameter": "fw_avoid_trigger_dist",
+        "type": "double",
+        "default": 60.0,
+        "min": 1.0,
+        "max": 300.0,
+        "step": 1.0,
+        "unit": "m",
+        "category": "Obstacle avoidance",
+        "description": "Distance from an obstacle at which fixed-wing avoidance becomes active.",
+    },
+    {
+        "key": "mc_attractive_gain",
+        "label": "Multicopter goal pull strength",
+        "node": "apf_safety",
+        "parameter": "mc_attractive_gain",
+        "type": "double",
+        "default": 1.0,
+        "min": 0.05,
+        "max": 50.0,
+        "step": 0.05,
+        "unit": "",
+        "category": "Obstacle avoidance",
+        "description": "Scales the force pulling a multicopter toward its commanded direction.",
+    },
+    {
+        "key": "fw_attractive_gain",
+        "label": "Fixed-wing goal pull strength",
+        "node": "apf_safety",
+        "parameter": "fw_attractive_gain",
+        "type": "double",
+        "default": 0.5106891373,
+        "min": 0.05,
+        "max": 100.0,
+        "step": 0.01,
+        "unit": "",
+        "category": "Obstacle avoidance",
+        "description": "Scales the force pulling a fixed-wing vehicle toward its commanded direction.",
+    },
+    {
+        "key": "mc_repulsive_gain",
+        "label": "Multicopter obstacle push strength",
+        "node": "apf_safety",
+        "parameter": "mc_repulsive_gain",
+        "type": "double",
+        "default": 2.5,
+        "min": 0.0,
+        "max": 100.0,
+        "step": 0.1,
+        "unit": "",
+        "category": "Obstacle avoidance",
+        "description": "Scales the force pushing a multicopter away from nearby obstacles.",
+    },
+    {
+        "key": "fw_repulsive_gain",
+        "label": "Fixed-wing obstacle push strength",
+        "node": "apf_safety",
+        "parameter": "fw_repulsive_gain",
+        "type": "double",
+        "default": 10.4140429356,
+        "min": 0.0,
+        "max": 200.0,
+        "step": 0.1,
+        "unit": "",
+        "category": "Obstacle avoidance",
+        "description": "Scales the obstacle repulsion applied to the fixed-wing safety command.",
+    },
+    {
+        "key": "fw_max_avoid_angle_deg",
+        "label": "Maximum fixed-wing horizontal deviation",
+        "node": "apf_safety",
+        "parameter": "fw_max_avoid_angle_deg",
+        "type": "double",
+        "default": 16.8054438656,
+        "min": 5.0,
+        "max": 60.0,
+        "step": 0.1,
+        "unit": "deg",
+        "category": "Obstacle avoidance",
+        "description": "Maximum yaw deflection the APF may request from a fixed-wing vehicle to avoid an obstacle.",
+    },
+    {
+        "key": "fw_max_avoid_pitch_deg",
+        "label": "Maximum fixed-wing vertical deviation",
+        "node": "apf_safety",
+        "parameter": "fw_max_avoid_pitch_deg",
+        "type": "double",
+        "default": 13.9883463092,
+        "min": 1.0,
+        "max": 30.0,
+        "step": 0.1,
+        "unit": "deg",
+        "category": "Obstacle avoidance",
+        "description": "Maximum pitch deflection the APF may request from a fixed-wing vehicle during avoidance.",
+    },
+    {
+        "key": "repulsive_distance_power",
+        "label": "Obstacle proximity response",
+        "node": "apf_safety",
+        "parameter": "repulsive_distance_power",
+        "type": "double",
+        "default": 1.0546550712,
+        "min": 0.25,
+        "max": 4.0,
+        "step": 0.01,
+        "unit": "",
+        "category": "Obstacle avoidance",
+        "description": "Controls how sharply obstacle repulsion grows as the vehicle gets closer.",
+    },
+    {
+        "key": "apf_clearance_radius",
+        "label": "Required obstacle clearance",
+        "node": "apf_safety",
+        "parameter": "apf_clearance_radius",
+        "type": "double",
+        "default": 1.5,
+        "min": 0.1,
+        "max": 20.0,
+        "step": 0.1,
+        "unit": "m",
+        "category": "Obstacle avoidance",
+        "description": "Safety radius around the vehicle used when deciding whether an obstacle is too close.",
+    },
+    {
+        "key": "vertical_escape_pitch_gain",
+        "label": "Vertical escape response",
+        "node": "apf_safety",
+        "parameter": "vertical_escape_pitch_gain",
+        "type": "double",
+        "default": 1.1609707637,
+        "min": 0.1,
+        "max": 5.0,
+        "step": 0.01,
+        "unit": "",
+        "category": "Obstacle avoidance",
+        "description": "Controls the pitch response used for a fixed-wing vertical escape maneuver.",
+    },
+    {
+        "key": "mc_speed",
+        "label": "Multicopter avoidance speed limit",
+        "node": "apf_safety",
+        "parameter": "mc_speed",
+        "type": "double",
+        "default": 4.0,
+        "min": 0.2,
+        "max": 50.0,
+        "step": 0.1,
+        "unit": "m/s",
+        "category": "Obstacle avoidance",
+        "description": "Maximum horizontal speed allowed in the APF multicopter safety command.",
+    },
+    {
+        "key": "mc_climb_speed",
+        "label": "Multicopter climb speed limit",
+        "node": "apf_safety",
+        "parameter": "mc_climb_speed",
+        "type": "double",
+        "default": 2.0,
+        "min": 0.2,
+        "max": 20.0,
+        "step": 0.1,
+        "unit": "m/s",
+        "category": "Obstacle avoidance",
+        "description": "Maximum vertical speed allowed during APF multicopter escape behavior.",
+    },
+    {
+        "key": "avoidance_clear_hold_time",
+        "label": "Clear-path confirmation time",
+        "node": "apf_safety",
+        "parameter": "avoidance_clear_hold_time",
+        "type": "double",
+        "default": 2.0,
+        "min": 0.2,
+        "max": 30.0,
+        "step": 0.1,
+        "unit": "s",
+        "category": "Obstacle avoidance",
+        "description": "How long the obstacle sector must stay clear before avoidance is released.",
+    },
+    {
+        "key": "sector_margin_min_deg",
+        "label": "Minimum obstacle viewing margin",
+        "node": "apf_safety",
+        "parameter": "sector_margin_min_deg",
+        "type": "double",
+        "default": 15.0,
+        "min": 0.0,
+        "max": 180.0,
+        "step": 1.0,
+        "unit": "deg",
+        "category": "Obstacle avoidance",
+        "description": "Smallest angular margin added around the current and desired travel directions.",
+    },
+    {
+        "key": "sector_margin_max_deg",
+        "label": "Maximum obstacle viewing margin",
+        "node": "apf_safety",
+        "parameter": "sector_margin_max_deg",
+        "type": "double",
+        "default": 35.0,
+        "min": 0.0,
+        "max": 180.0,
+        "step": 1.0,
+        "unit": "deg",
+        "category": "Obstacle avoidance",
+        "description": "Largest angular margin used at high travel speeds when filtering obstacles.",
+    },
+    {
+        "key": "sector_margin_speed_min",
+        "label": "Margin ramp-up speed",
+        "node": "apf_safety",
+        "parameter": "sector_margin_speed_min",
+        "type": "double",
+        "default": 3.0,
+        "min": 0.0,
+        "max": 100.0,
+        "step": 0.1,
+        "unit": "m/s",
+        "category": "Obstacle avoidance",
+        "description": "Speed at which the sector margin begins interpolating above its minimum.",
+    },
+    {
+        "key": "sector_margin_speed_max",
+        "label": "Full margin speed",
+        "node": "apf_safety",
+        "parameter": "sector_margin_speed_max",
+        "type": "double",
+        "default": 20.0,
+        "min": 0.1,
+        "max": 100.0,
+        "step": 0.1,
+        "unit": "m/s",
+        "category": "Obstacle avoidance",
+        "description": "Speed at which the sector margin reaches its configured maximum.",
+    },
+    {
+        "key": "sector_direction_min_speed",
+        "label": "Minimum movement speed for direction",
+        "node": "apf_safety",
+        "parameter": "sector_direction_min_speed",
+        "type": "double",
+        "default": 0.5,
+        "min": 0.0,
+        "max": 20.0,
+        "step": 0.1,
+        "unit": "m/s",
+        "category": "Obstacle avoidance",
+        "description": "Minimum speed used before a motion direction is considered reliable for sector filtering.",
+    },
+    {
+        "key": "emergency_radius",
+        "label": "Emergency obstacle distance",
+        "node": "apf_safety",
+        "parameter": "emergency_radius",
+        "type": "double",
+        "default": 5.0,
+        "min": 0.1,
+        "max": 70.0,
+        "step": 0.1,
+        "unit": "m",
+        "category": "Obstacle avoidance",
+        "description": "Distance below which the APF treats an obstacle as an emergency proximity event.",
+    },
+    {
+        "key": "obstacle_timeout_s",
+        "label": "Sensor data freshness limit",
+        "node": "apf_safety",
+        "parameter": "obstacle_timeout_s",
+        "type": "double",
+        "default": 0.5,
+        "min": 0.1,
+        "max": 10.0,
+        "step": 0.1,
+        "unit": "s",
+        "category": "Obstacle avoidance",
+        "description": "Maximum age of an obstacle cloud before APF considers the perception data stale.",
+    },
+    {
+        "key": "avoidance_enabled",
+        "label": "Obstacle avoidance enabled",
+        "node": "apf_safety",
+        "parameter": "avoidance_enabled",
+        "type": "bool",
+        "default": True,
+        "category": "Obstacle avoidance",
+        "description": "Enables or disables the APF safety correction while leaving the navigation command active.",
+    },
+    {
+        "key": "goal_tolerance_m",
+        "label": "Goal arrival distance",
+        "node": "navigation_server",
+        "parameter": "goal_tolerance_m",
+        "type": "double",
+        "default": 25.0,
+        "min": 0.2,
+        "max": 200.0,
+        "step": 0.5,
+        "unit": "m",
+        "category": "Flight guidance",
+        "description": "Horizontal distance from a goal at which the navigation action considers it reached.",
+    },
+    {
+        "key": "altitude_tolerance_m",
+        "label": "Goal height tolerance",
+        "node": "navigation_server",
+        "parameter": "altitude_tolerance_m",
+        "type": "double",
+        "default": 2.0,
+        "min": 0.2,
+        "max": 50.0,
+        "step": 0.1,
+        "unit": "m",
+        "category": "Flight guidance",
+        "description": "Vertical distance from a goal at which the navigation action considers altitude reached.",
+    },
+    {
+        "key": "goal_chain_grace_period_s",
+        "label": "Next-goal transition delay",
+        "node": "navigation_server",
+        "parameter": "goal_chain_grace_period_s",
+        "type": "double",
+        "default": 0.25,
+        "min": 0.05,
+        "max": 10.0,
+        "step": 0.05,
+        "unit": "s",
+        "category": "Flight guidance",
+        "description": "Delay before a completed goal enters the multicopter altitude-hold handoff state.",
+    },
+    {
+        "key": "default_speed_m_s",
+        "label": "Default travel speed",
+        "node": "navigation_server",
+        "parameter": "default_speed_m_s",
+        "type": "double",
+        "default": 15.0,
+        "min": 0.2,
+        "max": 100.0,
+        "step": 0.1,
+        "unit": "m/s",
+        "category": "Flight guidance",
+        "description": "Speed used when a goal does not provide a cruise-speed override.",
+    },
+    {
+        "key": "max_speed_m_s",
+        "label": "Maximum travel speed",
+        "node": "navigation_server",
+        "parameter": "max_speed_m_s",
+        "type": "double",
+        "default": 20.0,
+        "min": 0.2,
+        "max": 100.0,
+        "step": 0.1,
+        "unit": "m/s",
+        "category": "Flight guidance",
+        "description": "Upper limit applied to navigation cruise speed commands.",
+    },
+    {
+        "key": "altitude_gain",
+        "label": "Height correction strength",
+        "node": "navigation_server",
+        "parameter": "altitude_gain",
+        "type": "double",
+        "default": 0.8,
+        "min": 0.1,
+        "max": 10.0,
+        "step": 0.05,
+        "unit": "",
+        "category": "Flight guidance",
+        "description": "Proportional gain converting altitude error into multicopter vertical velocity.",
+    },
+    {
+        "key": "multicopter_arrival_gain",
+        "label": "Slowdown near goal",
+        "node": "navigation_server",
+        "parameter": "multicopter_arrival_gain",
+        "type": "double",
+        "default": 0.8,
+        "min": 0.1,
+        "max": 10.0,
+        "step": 0.05,
+        "unit": "",
+        "category": "Flight guidance",
+        "description": "Scales horizontal speed down as a multicopter approaches the goal.",
+    },
+    {
+        "key": "navigation_max_vertical_speed_m_s",
+        "label": "Navigation climb/descent limit",
+        "node": "navigation_server",
+        "parameter": "max_vertical_speed_m_s",
+        "type": "double",
+        "default": 3.0,
+        "min": 0.2,
+        "max": 30.0,
+        "step": 0.1,
+        "unit": "m/s",
+        "category": "Flight guidance",
+        "description": "Maximum vertical velocity generated by the navigation server.",
+    },
+    {
+        "key": "transition_request_period_s",
+        "label": "Flight-mode change interval",
+        "node": "navigation_server",
+        "parameter": "transition_request_period_s",
+        "type": "double",
+        "default": 1.0,
+        "min": 0.2,
+        "max": 10.0,
+        "step": 0.1,
+        "unit": "s",
+        "category": "Flight guidance",
+        "description": "Minimum time between repeated requests to change between fixed-wing and multicopter modes.",
+    },
+    {
+        "key": "max_range_m",
+        "label": "Obstacle sensing distance",
+        "node": "lidar_processor",
+        "parameter": "max_range_m",
+        "type": "double",
+        "default": 70.0,
+        "min": 70.0,
+        "max": 300.0,
+        "step": 1.0,
+        "unit": "m",
+        "category": "Sensors & mapping",
+        "description": "Maximum point range passed from the LiDAR processor to the obstacle pipeline.",
+    },
+    {
+        "key": "active_lidar_apf_range",
+        "label": "Active obstacle sensing range",
+        "node": "swarm_command",
+        "parameter": "",
+        "type": "double",
+        "default": 70.0,
+        "min": 70.0,
+        "max": 300.0,
+        "step": 10.0,
+        "unit": "m",
+        "scope": "drone_command",
+        "category": "Sensors & mapping",
+        "description": "Active LiDAR/APF range used by the selected drone for obstacle avoidance. This is sent through the coordinator command and can be applied to one drone or all connected drones.",
+    },
+    {
+        "key": "ground_height_m",
+        "label": "Ground removal height",
+        "node": "lidar_processor",
+        "parameter": "ground_height_m",
+        "type": "double",
+        "default": 0.4,
+        "min": -10.0,
+        "max": 10.0,
+        "step": 0.05,
+        "unit": "m",
+        "category": "Sensors & mapping",
+        "description": "Points at or below this map height are removed as ground returns.",
+    },
+    {
+        "key": "voxel_size_m",
+        "label": "Obstacle detail size",
+        "node": "lidar_processor",
+        "parameter": "voxel_size_m",
+        "type": "double",
+        "default": 0.2,
+        "min": 0.01,
+        "max": 5.0,
+        "step": 0.01,
+        "unit": "m",
+        "category": "Sensors & mapping",
+        "description": "Grid size used to deduplicate transformed LiDAR points before publishing obstacles.",
+    },
+    {
+        "key": "fw_lookahead_m",
+        "label": "Fixed-wing path preview distance",
+        "node": "px4_gateway",
+        "parameter": "fw_lookahead_m",
+        "type": "double",
+        "default": 40.0,
+        "min": 5.0,
+        "max": 300.0,
+        "step": 1.0,
+        "unit": "m",
+        "category": "Flight safety limits",
+        "description": "Distance ahead of the fixed-wing vehicle used to project its altitude-hold position setpoint.",
+    },
+    {
+        "key": "max_horizontal_speed_m_s",
+        "label": "Horizontal speed safety limit",
+        "node": "px4_gateway",
+        "parameter": "max_horizontal_speed_m_s",
+        "type": "double",
+        "default": 25.0,
+        "min": 1.0,
+        "max": 100.0,
+        "step": 0.1,
+        "unit": "m/s",
+        "category": "Flight safety limits",
+        "description": "Final horizontal velocity limit applied immediately before publishing the PX4 setpoint.",
+    },
+    {
+        "key": "px4_max_vertical_speed_m_s",
+        "label": "Vertical speed safety limit",
+        "node": "px4_gateway",
+        "parameter": "max_vertical_speed_m_s",
+        "type": "double",
+        "default": 5.0,
+        "min": 0.2,
+        "max": 30.0,
+        "step": 0.1,
+        "unit": "m/s",
+        "category": "Flight safety limits",
+        "description": "Final vertical velocity limit applied immediately before publishing the PX4 setpoint.",
+    },
+    {
+        "key": "minimum_altitude_m",
+        "label": "Minimum flight height",
+        "node": "px4_gateway",
+        "parameter": "minimum_altitude_m",
+        "type": "double",
+        "default": 0.5,
+        "min": 0.0,
+        "max": 100.0,
+        "step": 0.1,
+        "unit": "m",
+        "category": "Flight safety limits",
+        "description": "Lowest altitude used by the gateway when creating altitude-hold position setpoints.",
+    },
+    {
+        "key": "camera_fps",
+        "label": "Live camera update rate",
+        "node": "dashboard",
+        "parameter": "camera_rate_hz",
+        "type": "choice",
+        "options": list(CAMERA_FPS_OPTIONS),
+        "default": 60.0,
+        "unit": "FPS",
+        "scope": "dashboard",
+        "category": "Camera display",
+        "description": "How many new camera frames per second the local dashboard decodes, encodes, and serves to the browser. This does not change Gazebo.",
+    },
+    {
+        "key": "camera_resolution",
+        "label": "Live camera resolution",
+        "node": "dashboard",
+        "parameter": "camera_resolution",
+        "type": "choice",
+        "options": list(CAMERA_RESOLUTIONS),
+        "default": "640x360",
+        "unit": "",
+        "scope": "dashboard",
+        "category": "Camera display",
+        "description": "Output resolution used by the local dashboard before JPEG encoding. It does not change the Gazebo camera sensor.",
+    },
+    {
+        "key": "camera_image_quality",
+        "label": "JPEG image quality",
+        "node": "dashboard",
+        "parameter": "jpeg_quality",
+        "type": "integer",
+        "default": 72,
+        "min": 20,
+        "max": 95,
+        "step": 1,
+        "unit": "%",
+        "scope": "dashboard",
+        "category": "Camera display",
+        "description": "JPEG compression quality used for the local browser stream. Higher values improve detail but use more CPU, bandwidth, and memory.",
+    },
+]
+RUNTIME_SETTINGS_BY_KEY = {setting["key"]: setting for setting in RUNTIME_SETTING_DEFINITIONS}
 
 
 @dataclass
@@ -107,6 +713,11 @@ class DashboardNode(Node):
                 self.declare_parameter("camera_rate_hz", self._dashboard_rate_hz).value
             ),
         )
+        self._camera_resolution = str(
+            self.declare_parameter("camera_resolution", "640x360").value
+        )
+        if self._camera_resolution not in CAMERA_RESOLUTIONS:
+            raise ValueError(f"unsupported camera resolution '{self._camera_resolution}'")
         self._recording_rate_hz = max(
             1.0, float(self.declare_parameter("recording_rate_hz", 30.0).value)
         )
@@ -127,6 +738,13 @@ class DashboardNode(Node):
         self._preconfigure_media_storage = bool(
             self.declare_parameter("preconfigure_media_storage", False).value
         )
+        self._settings_profile_path = Path(
+            str(
+                self.declare_parameter(
+                    "settings_profile_path", str(DEFAULT_SETTINGS_PROFILE_PATH)
+                ).value
+            )
+        ).expanduser()
         self._web_root = Path(get_package_share_directory("drone_dashboard")) / "web"
         self._callback_group = ReentrantCallbackGroup()
         self._lock = threading.Lock()
@@ -142,6 +760,14 @@ class DashboardNode(Node):
         self._last_camera_encode = {}
         self._camera_encoding = set()
         self._server_video_recordings = {}
+        self._parameter_clients = {}
+        self._apf_enabled_clients = {}
+        self._runtime_setting_values = {}
+        self._settings_profiles_lock = threading.Lock()
+        self._settings_profiles = self._load_settings_profiles()
+        self._camera_parameter_callback_handle = self.add_on_set_parameters_callback(
+            self._on_parameters_set
+        )
 
         state_qos = QoSProfile(depth=1)
         state_qos.reliability = ReliabilityPolicy.RELIABLE
@@ -520,20 +1146,56 @@ class DashboardNode(Node):
         self._sensor_subscriptions[drone_id] = subscriptions
         self.get_logger().info(f"Dashboard discovered {drone_id} at {normalized}")
 
+    def _on_parameters_set(self, parameters):
+        result = SetParametersResult()
+        result.successful = True
+        try:
+            updated_rate = self._camera_rate_hz
+            updated_quality = self._jpeg_quality
+            updated_resolution = self._camera_resolution
+            for parameter in parameters:
+                if parameter.name == "camera_rate_hz":
+                    updated_rate = float(parameter.value)
+                elif parameter.name == "jpeg_quality":
+                    updated_quality = int(parameter.value)
+                elif parameter.name == "camera_resolution":
+                    updated_resolution = str(parameter.value)
+
+            if not 0.5 <= updated_rate <= 60.0:
+                raise ValueError("camera FPS must be between 0.5 and 60")
+            if not 20 <= updated_quality <= 95:
+                raise ValueError("JPEG quality must be between 20 and 95")
+            if updated_resolution not in CAMERA_RESOLUTIONS:
+                raise ValueError("unsupported camera resolution")
+            with self._camera_lock:
+                self._camera_rate_hz = updated_rate
+                self._jpeg_quality = updated_quality
+                self._camera_resolution = updated_resolution
+        except (TypeError, ValueError) as exception:
+            result.successful = False
+            result.reason = str(exception)
+        return result
+
     def _on_camera(self, drone_id: str, message: Image):
         now = time.monotonic()
         with self._camera_lock:
             if drone_id in self._camera_encoding:
                 return
-            if now - self._last_camera_encode.get(drone_id, 0.0) < 1.0 / self._camera_rate_hz:
+            camera_rate_hz = self._camera_rate_hz
+            jpeg_quality = self._jpeg_quality
+            camera_resolution = self._camera_resolution
+            if now - self._last_camera_encode.get(drone_id, 0.0) < 1.0 / camera_rate_hz:
                 return
             self._camera_encoding.add(drone_id)
             self._last_camera_encode[drone_id] = now
         try:
             image = self._decode_image(message)
             DashboardNode._record_camera_frame(self, drone_id, image, now)
+            output_width, output_height = CAMERA_RESOLUTIONS[camera_resolution]
+            if image.shape[1] != output_width or image.shape[0] != output_height:
+                image = cv2.resize(image, (output_width, output_height), interpolation=cv2.INTER_AREA)
             encoded, jpeg = cv2.imencode(
-                ".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality]
+                ".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality]
             )
             if not encoded:
                 return
@@ -605,8 +1267,622 @@ class DashboardNode(Node):
             except Exception as exception:  # keep HTTP errors away from the ROS executor
                 self._finish(request, False, f"command failed: {exception}")
 
+    def _setting_targets(self, requested_target="ALL"):
+        with self._lock:
+            drones = [dict(drone) for drone in self._state.get("drones", [])]
+        connected = [drone for drone in drones if drone.get("connected")]
+        target = str(requested_target or "ALL")
+        if target.upper() == "ALL":
+            return sorted(connected, key=lambda drone: drone.get("drone_id", ""))
+        selected = [drone for drone in connected if drone.get("drone_id") == target]
+        if not selected:
+            raise ValueError(f"drone '{target}' is not connected")
+        return selected
+
+    def _parameter_client(self, drone, node_name):
+        drone_id = drone["drone_id"]
+        key = (drone_id, node_name)
+        client = self._parameter_clients.get(key)
+        if client is None:
+            namespace = str(drone.get("namespace") or drone_id).strip("/")
+            client = AsyncParameterClient(self, f"/{namespace}/{node_name}")
+            self._parameter_clients[key] = client
+        return client
+
+    def _apf_enabled_client(self, drone):
+        drone_id = drone["drone_id"]
+        client = self._apf_enabled_clients.get(drone_id)
+        if client is None:
+            namespace = str(drone.get("namespace") or drone_id).strip("/")
+            client = self.create_client(SetBool, f"/{namespace}/apf/set_enabled")
+            self._apf_enabled_clients[drone_id] = client
+        return client
+
+    @staticmethod
+    def _parameter_value(value):
+        if isinstance(value, Parameter):
+            return value.value
+        if value.type == Parameter.Type.BOOL:
+            return bool(value.bool_value)
+        if value.type == Parameter.Type.DOUBLE:
+            return float(value.double_value)
+        if value.type == Parameter.Type.INTEGER:
+            return int(value.integer_value)
+        if value.type == Parameter.Type.STRING:
+            return value.string_value
+        return None
+
+    @staticmethod
+    def _profile_name(raw_name):
+        name = " ".join(str(raw_name or "").split())
+        if not name:
+            raise ValueError("profile name cannot be empty")
+        if len(name) > 80:
+            raise ValueError("profile name must be 80 characters or fewer")
+        return name
+
+    def _load_settings_profiles(self):
+        if not self._settings_profile_path.exists():
+            return {}
+        try:
+            document = json.loads(self._settings_profile_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exception:
+            self.get_logger().warning(
+                f"Could not load settings profiles from {self._settings_profile_path}: {exception}"
+            )
+            return {}
+
+        raw_profiles = document.get("profiles", {}) if isinstance(document, dict) else {}
+        if not isinstance(raw_profiles, dict):
+            self.get_logger().warning("Settings profile file has an invalid profiles object")
+            return {}
+
+        profiles = {}
+        for raw_name, raw_profile in raw_profiles.items():
+            try:
+                name = self._profile_name(raw_name)
+                raw_values = raw_profile.get("values", {})
+                if not isinstance(raw_values, dict):
+                    raise ValueError("profile values must be an object")
+                values = {}
+                for key, raw_value in raw_values.items():
+                    setting = RUNTIME_SETTINGS_BY_KEY.get(str(key))
+                    if setting is None:
+                        continue
+                    values[setting["key"]] = self._coerce_setting_value(setting, raw_value)
+                profiles[name] = {
+                    "name": name,
+                    "saved_at": str(raw_profile.get("saved_at", "")),
+                    "values": values,
+                }
+            except (AttributeError, TypeError, ValueError) as exception:
+                self.get_logger().warning(
+                    f"Ignoring invalid settings profile '{raw_name}': {exception}"
+                )
+        return profiles
+
+    def _write_settings_profiles(self):
+        document = {
+            "version": RUNTIME_PROFILE_VERSION,
+            "profiles": self._settings_profiles,
+        }
+        self._settings_profile_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = self._settings_profile_path.with_name(
+            f".{self._settings_profile_path.name}.tmp"
+        )
+        try:
+            temporary_path.write_text(
+                json.dumps(document, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            temporary_path.replace(self._settings_profile_path)
+        except Exception:
+            temporary_path.unlink(missing_ok=True)
+            raise
+
+    def _settings_profiles_response(self):
+        with self._settings_profiles_lock:
+            profiles = [
+                {
+                    "name": profile["name"],
+                    "saved_at": profile["saved_at"],
+                    "values": dict(profile["values"]),
+                }
+                for profile in sorted(
+                    self._settings_profiles.values(),
+                    key=lambda profile: profile["name"].lower(),
+                )
+            ]
+        return {
+            "ok": True,
+            "message": "Settings profiles loaded",
+            "profiles": profiles,
+        }
+
+    def _get_settings_profiles(self, command):
+        command.result = self._settings_profiles_response()
+        command.completed.set()
+
+    def _save_settings_profile(self, command):
+        payload = command.payload
+        try:
+            name = self._profile_name(payload.get("name"))
+            raw_values = payload.get("values")
+            if not isinstance(raw_values, dict) or not raw_values:
+                raise ValueError("profile must contain at least one setting")
+            values = {}
+            for key, raw_value in raw_values.items():
+                setting = RUNTIME_SETTINGS_BY_KEY.get(str(key))
+                if setting is None:
+                    raise ValueError(f"unknown runtime setting '{key}'")
+                values[setting["key"]] = self._coerce_setting_value(setting, raw_value)
+        except (TypeError, ValueError) as exception:
+            self._finish(command, False, str(exception))
+            return
+
+        profile = {
+            "name": name,
+            "saved_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "values": values,
+        }
+        try:
+            with self._settings_profiles_lock:
+                self._settings_profiles[name] = profile
+                self._write_settings_profiles()
+        except OSError as exception:
+            self._finish(command, False, f"profile could not be saved: {exception}")
+            return
+        self._finish(command, True, f"Profile '{name}' saved")
+
+    def _delete_settings_profile(self, command):
+        try:
+            name = self._profile_name(command.payload.get("name"))
+        except ValueError as exception:
+            self._finish(command, False, str(exception))
+            return
+        try:
+            with self._settings_profiles_lock:
+                if name not in self._settings_profiles:
+                    self._finish(command, False, f"Profile '{name}' does not exist")
+                    return
+                del self._settings_profiles[name]
+                self._write_settings_profiles()
+        except OSError as exception:
+            self._finish(command, False, f"profile could not be deleted: {exception}")
+            return
+        self._finish(command, True, f"Profile '{name}' deleted")
+
+    def _settings_response(self, targets, values):
+        target_ids = [drone["drone_id"] for drone in targets]
+        response_values = {
+            drone_id: dict(values.get(drone_id, {})) for drone_id in target_ids
+        }
+        if "dashboard" in values:
+            response_values["dashboard"] = dict(values["dashboard"])
+        return {
+            "ok": True,
+            "message": "Runtime settings loaded",
+            "settings": [dict(setting) for setting in RUNTIME_SETTING_DEFINITIONS],
+            "targets": target_ids,
+            "values": response_values,
+        }
+
+    def _get_settings(self, command):
+        targets = self._setting_targets("ALL")
+        values = {
+            drone["drone_id"]: dict(self._runtime_setting_values.get(drone["drone_id"], {}))
+            for drone in targets
+        }
+        values["dashboard"] = dict(self._runtime_setting_values.get("dashboard", {}))
+        jobs = []
+        grouped = {}
+        for setting in RUNTIME_SETTING_DEFINITIONS:
+            if setting.get("scope") == "dashboard":
+                try:
+                    value = self._parameter_value(self.get_parameter(setting["parameter"]))
+                    if value is not None:
+                        values["dashboard"][setting["key"]] = value
+                        self._runtime_setting_values.setdefault("dashboard", {})[
+                            setting["key"]
+                        ] = value
+                except Exception as exception:
+                    self.get_logger().warning(
+                        f"Could not read dashboard setting {setting['key']}: {exception}"
+                    )
+                continue
+            if setting.get("scope") == "drone_command":
+                state_drones = {
+                    drone.get("drone_id"): drone for drone in targets
+                }
+                for drone_id, drone in state_drones.items():
+                    value = drone.get("lidar_range_m")
+                    if value is not None:
+                        values[drone_id][setting["key"]] = value
+                        self._runtime_setting_values.setdefault(drone_id, {})[
+                            setting["key"]
+                        ] = value
+                continue
+            grouped.setdefault(setting["node"], []).append(setting)
+        for drone in targets:
+            for node_name, settings in grouped.items():
+                client = self._parameter_client(drone, node_name)
+                if not client.services_are_ready():
+                    continue
+                future = client.get_parameters([setting["parameter"] for setting in settings])
+                jobs.append((future, drone["drone_id"], settings))
+
+        if not jobs:
+            command.result = self._settings_response(targets, values)
+            command.completed.set()
+            return
+
+        pending = len(jobs)
+        result_lock = threading.Lock()
+
+        def completed(result_future, drone_id, settings):
+            nonlocal pending
+            try:
+                parameter_values = result_future.result().values
+                for setting, parameter_value in zip(settings, parameter_values):
+                    value = self._parameter_value(parameter_value)
+                    if value is not None:
+                        values[drone_id][setting["key"]] = value
+                        self._runtime_setting_values.setdefault(drone_id, {})[
+                            setting["key"]
+                        ] = value
+            except Exception as exception:
+                self.get_logger().warning(
+                    f"Could not read runtime settings from {drone_id}: {exception}"
+                )
+            with result_lock:
+                pending -= 1
+                if pending == 0:
+                    command.result = self._settings_response(targets, values)
+                    command.completed.set()
+
+        for future, drone_id, settings in jobs:
+            future.add_done_callback(
+                lambda result_future, current_id=drone_id, current_settings=settings:
+                completed(result_future, current_id, current_settings)
+            )
+
+    @staticmethod
+    def _coerce_setting_value(setting, raw_value):
+        if setting["type"] == "bool":
+            if isinstance(raw_value, bool):
+                return raw_value
+            if isinstance(raw_value, str) and raw_value.lower() in {"true", "false"}:
+                return raw_value.lower() == "true"
+            raise ValueError("boolean setting requires true or false")
+        if setting["type"] == "choice":
+            for option in setting.get("options", []):
+                if isinstance(option, (int, float)) and not isinstance(option, bool):
+                    try:
+                        if float(raw_value) == float(option):
+                            return option
+                    except (TypeError, ValueError):
+                        continue
+                elif str(raw_value) == str(option):
+                    return option
+            options = ", ".join(str(option) for option in setting.get("options", []))
+            raise ValueError(f"setting must be one of: {options}")
+        if setting["type"] == "integer":
+            try:
+                value = int(raw_value)
+            except (TypeError, ValueError) as exception:
+                raise ValueError("integer setting requires a whole number") from exception
+            if str(raw_value).strip() != str(value) and not isinstance(raw_value, int):
+                raise ValueError("integer setting requires a whole number")
+        else:
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError) as exception:
+                raise ValueError("numeric setting requires a number") from exception
+        if setting["type"] == "integer":
+            numeric_value = float(value)
+        else:
+            numeric_value = value
+        if not math.isfinite(numeric_value):
+            raise ValueError("setting must be finite")
+        if "min" in setting and numeric_value < setting["min"]:
+            raise ValueError(f"setting must be at least {setting['min']}")
+        if "max" in setting and numeric_value > setting["max"]:
+            raise ValueError(f"setting must be at most {setting['max']}")
+        return value
+
+    def _set_apf_enabled(self, command, setting, value, targets):
+        ready_clients = []
+        results = []
+        for drone in targets:
+            client = self._apf_enabled_client(drone)
+            if not client.service_is_ready():
+                results.append((
+                    drone["drone_id"], False, "/apf/set_enabled service unavailable"))
+                continue
+            ready_clients.append((drone, client))
+
+        pending = len(ready_clients)
+        if pending == 0:
+            failed = "; ".join(
+                f"{drone_id}: {reason}" for drone_id, _, reason in results)
+            self._finish(command, False, f"Setting rejected; {failed}")
+            return
+        result_lock = threading.Lock()
+
+        def completed(result_future, drone_id):
+            nonlocal pending
+            try:
+                response = result_future.result()
+                successful = bool(response.success)
+                reason = "" if successful else str(response.message)
+            except Exception as exception:
+                successful = False
+                reason = str(exception)
+            with result_lock:
+                results.append((drone_id, successful, reason))
+                pending -= 1
+                if pending != 0:
+                    return
+                successful_ids = [item[0] for item in results if item[1]]
+                failed = [f"{item[0]}: {item[2]}" for item in results if not item[1]]
+                for current_id in successful_ids:
+                    self._runtime_setting_values.setdefault(current_id, {})[
+                        setting["key"]
+                    ] = value
+                if failed:
+                    message = (
+                        f"Applied {setting['label']} to "
+                        f"{len(successful_ids)}/{len(targets)} drone(s)"
+                    )
+                    if successful_ids:
+                        message += "; " + ", ".join(failed)
+                    else:
+                        message = "Setting rejected; " + ", ".join(failed)
+                    self._finish(command, bool(successful_ids), message)
+                else:
+                    self._finish(
+                        command, True,
+                        f"Applied {setting['label']} to {', '.join(successful_ids)}",
+                    )
+
+        for drone, client in ready_clients:
+            request = SetBool.Request()
+            request.data = value
+            future = client.call_async(request)
+            future.add_done_callback(
+                lambda result_future, current_id=drone["drone_id"]:
+                completed(result_future, current_id)
+            )
+
+    def _set_setting(self, command):
+        """Apply one or more runtime settings as a single dashboard action.
+
+        The legacy key/value payload is still accepted for compatibility with
+        older dashboard bundles. The current UI sends a list of changes. All
+        values are validated before any ROS service is called.
+        """
+        payload = command.payload
+        raw_changes = payload.get("changes")
+        if raw_changes is None:
+            if "key" not in payload:
+                self._finish(command, False, "no runtime setting changes supplied")
+                return
+            raw_changes = [{"key": payload.get("key"), "value": payload.get("value")}]
+        if not isinstance(raw_changes, list) or not raw_changes:
+            self._finish(command, False, "changes must be a non-empty list")
+            return
+
+        changes = []
+        try:
+            for raw_change in raw_changes:
+                if not isinstance(raw_change, dict):
+                    raise ValueError("each runtime setting change must be an object")
+                key = str(raw_change.get("key", ""))
+                setting = RUNTIME_SETTINGS_BY_KEY.get(key)
+                if setting is None:
+                    raise ValueError(f"unknown runtime setting '{key}'")
+                value = self._coerce_setting_value(setting, raw_change.get("value"))
+                changes.append((key, setting, value))
+            targets = self._setting_targets(payload.get("target", "ALL"))
+        except (TypeError, ValueError) as exception:
+            self._finish(command, False, str(exception))
+            return
+        local_changes = [change for change in changes if change[1].get("scope") == "dashboard"]
+        drone_changes = [change for change in changes if change[1].get("scope") != "dashboard"]
+        if not targets and drone_changes:
+            self._finish(command, False, "no connected drones are available")
+            return
+
+        results = []
+        operations = []
+        result_lock = threading.Lock()
+        parameter_changes = [
+            change for change in drone_changes
+            if change[0] != "avoidance_enabled" and
+            change[1].get("scope") != "drone_command"
+        ]
+        enabled_changes = [change for change in drone_changes if change[0] == "avoidance_enabled"]
+        command_changes = [
+            change for change in drone_changes
+            if change[1].get("scope") == "drone_command"
+        ]
+
+        if local_changes:
+            try:
+                local_results = self.set_parameters([
+                    Parameter(setting["parameter"], value=value)
+                    for _, setting, value in local_changes
+                ])
+                for (key, _, _), result in zip(local_changes, local_results):
+                    results.append(("dashboard", key, bool(result.successful), str(result.reason)))
+                if len(local_results) < len(local_changes):
+                    for key, _, _ in local_changes[len(local_results):]:
+                        results.append(("dashboard", key, False, "dashboard returned no result"))
+            except Exception as exception:
+                results.extend(
+                    ("dashboard", key, False, str(exception))
+                    for key, _, _ in local_changes
+                )
+
+        for drone in targets:
+            drone_id = drone["drone_id"]
+            if parameter_changes:
+                grouped = {}
+                for key, setting, value in parameter_changes:
+                    grouped.setdefault(setting["node"], []).append((key, setting, value))
+                for node_name, node_changes in grouped.items():
+                    client = self._parameter_client(drone, node_name)
+                    if not client.services_are_ready():
+                        for key, _, _ in node_changes:
+                            results.append((drone_id, key, False,
+                                            f"/{node_name} parameter service unavailable"))
+                    else:
+                        operations.append(("parameters", drone, client, node_changes))
+
+            if enabled_changes:
+                setting = enabled_changes[0][1]
+                value = enabled_changes[0][2]
+                client = self._apf_enabled_client(drone)
+                if not client.service_is_ready():
+                    results.append((drone_id, setting["key"], False,
+                                    "/apf/set_enabled service unavailable"))
+                else:
+                    operations.append(("avoidance_enabled", drone, client,
+                                       [(setting["key"], setting, value)]))
+
+            if command_changes:
+                if not self._command_client.service_is_ready():
+                    for key, _, _ in command_changes:
+                        results.append((drone_id, key, False,
+                                        "/swarm/command service unavailable"))
+                else:
+                    operations.append(("drone_command", drone, self._command_client,
+                                       command_changes))
+
+        pending = len(operations)
+        total_updates = len(drone_changes) * len(targets) + len(local_changes)
+
+        def finish_all():
+            successful = [item for item in results if item[2]]
+            failed = [item for item in results if not item[2]]
+            for scope_id, key, _, _ in successful:
+                value = next(value for current_key, _, value in changes if current_key == key)
+                self._runtime_setting_values.setdefault(scope_id, {})[key] = value
+            if failed:
+                failure_text = "; ".join(
+                    f"{scope_id}/{key}: {reason}" for scope_id, key, _, reason in failed
+                )
+                message = f"Applied {len(successful)}/{total_updates} setting updates"
+                if successful:
+                    message += f"; {failure_text}"
+                else:
+                    message = f"Settings rejected; {failure_text}"
+                self._finish(command, bool(successful), message)
+            else:
+                self._finish(
+                    command, True,
+                    f"Applied {len(successful)} setting updates to {len(targets)} drone(s)",
+                )
+
+        def finish_operation(operation_results):
+            nonlocal pending
+            with result_lock:
+                results.extend(operation_results)
+                pending -= 1
+                if pending != 0:
+                    return
+            finish_all()
+
+        if pending == 0:
+            finish_all()
+            return
+
+        for operation_kind, drone, client, node_changes in operations:
+            drone_id = drone["drone_id"]
+            if operation_kind == "avoidance_enabled":
+                request = SetBool.Request()
+                request.data = node_changes[0][2]
+                future = client.call_async(request)
+
+                def completed_enabled(result_future, current_id=drone_id, key=node_changes[0][0]):
+                    try:
+                        response = result_future.result()
+                        successful = bool(response.success)
+                        reason = "" if successful else str(response.message)
+                    except Exception as exception:
+                        successful = False
+                        reason = str(exception)
+                    finish_operation([(current_id, key, successful, reason)])
+
+                future.add_done_callback(completed_enabled)
+                continue
+
+            if operation_kind == "drone_command":
+                request = SwarmCommand.Request()
+                request.command = SwarmCommand.Request.SET_DRONE_LIDAR_RANGE
+                request.drone_id = drone_id
+                request.lidar_range_m = float(node_changes[0][2])
+                future = client.call_async(request)
+
+                def completed_drone_command(
+                    result_future, current_id=drone_id, current_changes=node_changes
+                ):
+                    operation_results = []
+                    try:
+                        response = result_future.result()
+                        successful = bool(response.accepted)
+                        reason = "" if successful else str(response.message)
+                    except Exception as exception:
+                        successful = False
+                        reason = str(exception)
+                    for key, _, _ in current_changes:
+                        operation_results.append((current_id, key, successful, reason))
+                    finish_operation(operation_results)
+
+                future.add_done_callback(completed_drone_command)
+                continue
+
+            future = client.set_parameters([
+                Parameter(setting["parameter"], value=value)
+                for _, setting, value in node_changes
+            ])
+
+            def completed_parameters(
+                result_future, current_id=drone_id, current_changes=node_changes
+            ):
+                operation_results = []
+                try:
+                    parameter_results = result_future.result().results
+                    for (key, _, _), result in zip(current_changes, parameter_results):
+                        operation_results.append((
+                            current_id, key, bool(result.successful), str(result.reason)
+                        ))
+                    if len(parameter_results) < len(current_changes):
+                        for key, _, _ in current_changes[len(parameter_results):]:
+                            operation_results.append((
+                                current_id, key, False, "parameter service returned no result"
+                            ))
+                except Exception as exception:
+                    operation_results = [
+                        (current_id, key, False, str(exception))
+                        for key, _, _ in current_changes
+                    ]
+                finish_operation(operation_results)
+
+            future.add_done_callback(completed_parameters)
+
     def _dispatch_request(self, command: HttpCommand):
-        if command.kind == "add_target":
+        if command.kind == "get_settings":
+            self._get_settings(command)
+        elif command.kind == "get_settings_profiles":
+            self._get_settings_profiles(command)
+        elif command.kind == "set_setting":
+            self._set_setting(command)
+        elif command.kind == "save_settings_profile":
+            self._save_settings_profile(command)
+        elif command.kind == "delete_settings_profile":
+            self._delete_settings_profile(command)
+        elif command.kind == "add_target":
             self._add_target(command)
         elif command.kind == "remove_target":
             self._remove_target(command)
@@ -865,6 +2141,16 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/state":
             self._send_json(HTTPStatus.OK, self.server.dashboard.snapshot())
             return
+        if path == "/api/settings":
+            status, response = self.server.dashboard.submit("get_settings", {}, timeout_sec=4.0)
+            self._send_json(status, response)
+            return
+        if path == "/api/settings/profiles":
+            status, response = self.server.dashboard.submit(
+                "get_settings_profiles", {}, timeout_sec=4.0
+            )
+            self._send_json(status, response)
+            return
         if path == "/api/storage":
             dashboard = self.server.dashboard
             payload = {"ok": True, "preconfigured": dashboard._preconfigure_media_storage}
@@ -1045,6 +2331,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "/api/drone/speed": "set_drone_speed",
             "/api/drone/lidar-range": "set_drone_lidar_range",
             "/api/gimbal-command": "gimbal_command",
+            "/api/settings": "set_setting",
+            "/api/settings/profiles/save": "save_settings_profile",
+            "/api/settings/profiles/delete": "delete_settings_profile",
         }
         kind = routes.get(path)
         if kind is None:

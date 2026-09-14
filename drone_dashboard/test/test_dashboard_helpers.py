@@ -1,10 +1,18 @@
 import math
+import threading
+from types import SimpleNamespace
 
 from geometry_msgs.msg import Vector3
 from drone_interfaces.msg import SwarmAssignment, SwarmDroneState
+from rclpy.parameter import Parameter
 from sensor_msgs.msg import Image
 
-from drone_dashboard.dashboard_node import COMMANDS, DashboardNode
+from drone_dashboard.dashboard_node import (
+    COMMANDS,
+    HttpCommand,
+    RUNTIME_SETTING_DEFINITIONS,
+    DashboardNode,
+)
 
 
 def test_decode_rgb_image_to_opencv_bgr():
@@ -26,6 +34,12 @@ def test_non_finite_ros_values_become_json_null_values():
     assert DashboardNode._finite(12.5) == 12.5
     assert DashboardNode._finite(math.nan) is None
     assert DashboardNode._finite(math.inf) is None
+
+
+def test_parameter_value_accepts_rclpy_parameter_objects():
+    parameter = Parameter("camera_fps", Parameter.Type.DOUBLE, 30.0)
+
+    assert DashboardNode._parameter_value(parameter) == 30.0
 
 
 def test_speed_uses_all_three_velocity_axes():
@@ -76,3 +90,147 @@ def test_assignment_exposes_total_route_cost():
 
     assert result["cost"] == 12.0
     assert result["route_total_cost"] == 48.0
+
+
+def test_runtime_settings_batch_applies_every_dashboard_parameter():
+    class Future:
+        def __init__(self, result):
+            self._result = result
+
+        def add_done_callback(self, callback):
+            callback(self)
+
+        def result(self):
+            return self._result
+
+    class ParameterClient:
+        def __init__(self, node_name):
+            self.node_name = node_name
+            self.calls = []
+
+        def services_are_ready(self):
+            return True
+
+        def set_parameters(self, parameters):
+            self.calls.append(parameters)
+            return Future(SimpleNamespace(
+                results=[SimpleNamespace(successful=True, reason="") for _ in parameters]
+            ))
+
+    class EnabledClient:
+        def service_is_ready(self):
+            return True
+
+        def call_async(self, request):
+            return Future(SimpleNamespace(success=True, accepted=True, message=""))
+
+    class CommandClient(EnabledClient):
+        def __init__(self):
+            self.calls = []
+
+        def call_async(self, request):
+            self.calls.append(request)
+            return super().call_async(request)
+
+    node = DashboardNode.__new__(DashboardNode)
+    node._runtime_setting_values = {}
+    parameter_clients = {}
+    node.set_parameters = lambda parameters: [
+        SimpleNamespace(successful=True, reason="") for _ in parameters
+    ]
+    node._setting_targets = lambda target: [{"drone_id": "drone_1"}]
+    node._parameter_client = lambda drone, node_name: parameter_clients.setdefault(
+        node_name, ParameterClient(node_name)
+    )
+    node._apf_enabled_client = lambda drone: EnabledClient()
+    command_client = CommandClient()
+    node._command_client = command_client
+    node._finish = lambda command, ok, message: (
+        command.result.update(ok=ok, message=message), command.completed.set()
+    )
+
+    command = HttpCommand(
+        "set_setting",
+        {
+            "target": "ALL",
+            "changes": [
+                {"key": setting["key"], "value": setting["default"]}
+                for setting in RUNTIME_SETTING_DEFINITIONS
+            ],
+        },
+    )
+    DashboardNode._set_setting(node, command)
+
+    assert command.completed.is_set()
+    assert command.result["ok"] is True
+    drone_settings = [
+        setting for setting in RUNTIME_SETTING_DEFINITIONS
+        if setting.get("scope") != "dashboard"
+    ]
+    dashboard_settings = [
+        setting for setting in RUNTIME_SETTING_DEFINITIONS
+        if setting.get("scope") == "dashboard"
+    ]
+    assert len(node._runtime_setting_values["drone_1"]) == len(drone_settings)
+    assert set(node._runtime_setting_values["drone_1"]) == {
+        setting["key"] for setting in drone_settings
+    }
+    assert set(node._runtime_setting_values["dashboard"]) == {
+        setting["key"] for setting in dashboard_settings
+    }
+    assert set(parameter_clients) == {
+        "apf_safety", "navigation_server", "lidar_processor", "px4_gateway"
+    }
+    assert len(command_client.calls) == 1
+    assert command_client.calls[0].drone_id == "drone_1"
+    assert command_client.calls[0].lidar_range_m == 70.0
+
+
+def test_numeric_choice_accepts_browser_serialized_number():
+    setting = next(
+        setting for setting in RUNTIME_SETTING_DEFINITIONS
+        if setting["key"] == "camera_fps"
+    )
+
+    assert DashboardNode._coerce_setting_value(setting, "60") == 60.0
+
+
+def test_active_lidar_range_uses_coordinator_command_scope():
+    setting = next(
+        setting for setting in RUNTIME_SETTING_DEFINITIONS
+        if setting["key"] == "active_lidar_apf_range"
+    )
+
+    assert setting["scope"] == "drone_command"
+    assert DashboardNode._coerce_setting_value(setting, "120") == 120.0
+
+
+def test_settings_profile_round_trip_is_atomic_and_validated(tmp_path):
+    node = DashboardNode.__new__(DashboardNode)
+    node._settings_profile_path = tmp_path / "runtime_profiles.json"
+    node._settings_profiles_lock = threading.Lock()
+    node._settings_profiles = {}
+
+    command = HttpCommand(
+        "save_settings_profile",
+        {
+            "name": "Inspection safe",
+            "values": {
+                "obstacle_influence_radius": 80,
+                "camera_fps": "30",
+            },
+        },
+    )
+    DashboardNode._save_settings_profile(node, command)
+
+    assert command.result["ok"] is True
+    assert node._settings_profile_path.exists()
+
+    loaded = DashboardNode.__new__(DashboardNode)
+    loaded._settings_profile_path = node._settings_profile_path
+    profiles = DashboardNode._load_settings_profiles(loaded)
+
+    assert profiles["Inspection safe"]["values"] == {
+        "camera_fps": 30.0,
+        "obstacle_influence_radius": 80.0,
+    }

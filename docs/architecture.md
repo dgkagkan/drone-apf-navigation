@@ -95,10 +95,12 @@ The fused occupied centers are published on
 `/swarm/octomap_binary` and `/swarm/octomap_full`. Per-drone occupied contributions are available on
 `/swarm/mapping/<drone_id>/occupied_voxels`; these topics are created as drones
 join, so no drone IDs are hardcoded in the mapper.
-The default RViz display uses `/swarm/mapping_visualization`: exactly the global
-occupied centers with RGB colors. Height determines the base color; each
-connected local map replaces the color of matching global voxels. Local colors
-come from a registration index and a hue sequence excluding yellow/green.
+The default RViz display is `Global OctoMap only (height)`, using
+`/swarm/octomap_point_cloud_centers` to show the complete global occupied
+centers with height colors. The optional `/swarm/mapping_visualization` display
+uses exactly the same global geometry but lets each connected local map replace
+the color of matching global voxels. Local colors come from a registration index
+and a hue sequence excluding yellow/green.
 Indices survive reconnects within the mapper process; restarting with a different
 registration order can change them. When several locals cover a voxel, the first
 drone ID in lexical order wins. This single point cloud avoids coincident geometry
@@ -175,9 +177,9 @@ landing sensor is currently not an input to the mapper.
 
 - `controller.launch.py`: manual PS4 control, navigation action, APF, gimbal,
   and optional RViz visualization.
-- `swarm_sim.launch.py`: three independent PX4 SITL vehicles, three XRCE
-  agents, three namespaced controller stacks, and the swarm coordinator in one
-  Gazebo world.
+- `swarm_sim.launch.py`: a configurable number of independent PX4 SITL
+  vehicles, one XRCE agent and namespaced controller stack per vehicle, plus
+  the swarm coordinator in one Gazebo world.
 - `automated_controller.launch.py`: automated/Optuna mission using the same
   LiDAR, APF, supervisor, and gateway nodes.
 - `apf.launch.py`: compatibility wrapper for the modular automated mission.
@@ -405,10 +407,11 @@ The small pure-Python dashboard package is included only to keep
 `drone_bringup` dependency metadata complete; `drone_brain.launch.py` never
 starts it and the Pi does not subscribe to camera images.
 
-## Three-drone simulation
+## Configurable swarm simulation
 
 The complete local swarm simulation uses one custom VTOL model per vehicle and
-keeps each autopilot path independent:
+keeps each autopilot path independent. The default is three vehicles, but the
+same launch creates `drone_1` through `drone_N`:
 
 | Drone | PX4 instance | MAV system ID | XRCE UDP port | Initial map position |
 | --- | ---: | ---: | ---: | --- |
@@ -420,8 +423,27 @@ keeps each autopilot path independent:
 colcon build --packages-select drone_interfaces drone_description \
   drone_control drone_navigation drone_swarm drone_dashboard drone_bringup
 source install/setup.bash
-ros2 launch drone_bringup swarm_sim.launch.py
+ros2 launch drone_bringup swarm_sim.launch.py drones:=3
+
+# For example, start five complete simulated vehicles.
+ros2 launch drone_bringup swarm_sim.launch.py drones:=5
 ```
+
+For each generated ID the launch allocates a unique PX4 instance, MAV system
+ID, XRCE UDP port, DDS namespace, Gazebo model/topic set, controller and TF
+stack, mapping relay and RViz displays. The first three positions stay
+backwards-compatible with the original layout. Later vehicles are placed on
+expanding six-point rings around the origin; `drone_spawn_spacing_m` controls
+the ring spacing and `base_agent_port` controls the first XRCE port. The
+generated bridge and swarm parameter files are written to
+`work_root/generated` for that run, so the checked-in three-drone YAML files
+remain unchanged.
+
+The supported configuration range is `drones:=0` through `drones:=255` in one
+launch. The upper bound comes from PX4's one-byte MAV system ID and is a
+practical finite bound, while CPU, GPU, memory, UDP ports and Gazebo determine
+what a computer can run in practice. With `drones:=0`, only shared components
+such as `/clock`, the coordinator and dashboard are started.
 
 The default swarm world is `test`, containing the tiled grass ground and the
 90 distributed obstacles. Use `world:=optuna_course` when the optimization

@@ -15,6 +15,7 @@ find_package(drone_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(px4_msgs REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -30,7 +31,7 @@ ament_target_dependencies(flight_supervisor_node
 add_executable(px4_gateway_node src/px4_gateway_node.cpp)
 target_compile_features(px4_gateway_node PRIVATE cxx_std_17)
 ament_target_dependencies(px4_gateway_node
-  drone_interfaces px4_msgs rclcpp)
+  drone_interfaces px4_msgs rcl_interfaces rclcpp)
 
 add_executable(vehicle_tf_broadcaster_node src/vehicle_tf_broadcaster_node.cpp)
 target_compile_features(vehicle_tf_broadcaster_node PRIVATE cxx_std_17)

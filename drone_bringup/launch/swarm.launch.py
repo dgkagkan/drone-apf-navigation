@@ -31,6 +31,7 @@ def generate_launch_description():
     preconfigure_media_storage = LaunchConfiguration("preconfigure_media_storage")
     photo_save_dir = LaunchConfiguration("photo_save_dir")
     record_save_dir = LaunchConfiguration("record_save_dir")
+    settings_profile_path = LaunchConfiguration("settings_profile_path")
     default_config = PathJoinSubstitution([
         FindPackageShare("drone_swarm"), "config", "swarm.yaml"
     ])
@@ -61,6 +62,13 @@ def generate_launch_description():
             "record_save_dir",
             default_value=PathJoinSubstitution([
                 EnvironmentVariable("HOME"), "drone_dashboard_recordings"
+            ]),
+        ),
+        DeclareLaunchArgument(
+            "settings_profile_path",
+            default_value=PathJoinSubstitution([
+                EnvironmentVariable("HOME"), ".config", "drone-apf-navigation",
+                "runtime_profiles.json",
             ]),
         ),
         Node(
@@ -98,6 +106,7 @@ def generate_launch_description():
                 ),
                 "photo_save_dir": photo_save_dir,
                 "record_save_dir": record_save_dir,
+                "settings_profile_path": settings_profile_path,
             }],
             condition=IfCondition(use_dashboard),
         ),

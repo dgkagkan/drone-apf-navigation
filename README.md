@@ -1,6 +1,6 @@
 # VTOL APF Swarm Navigation
 
-ROS 2 Jazzy and PX4 SITL project for controlling a three-drone VTOL swarm in
+ROS 2 Jazzy and PX4 SITL project for controlling a configurable VTOL swarm in
 Gazebo. The system combines per-drone navigation, 3D Artificial Potential
 Field (APF) obstacle avoidance, dynamic route assignment, battery-aware safety,
 a browser dashboard, global OctoMap fusion, camera/gimbal control, and Optuna
@@ -103,7 +103,8 @@ cancellation, HOME, and fleet-level flight commands.
 - Enough free memory and disk for ROS, PX4, Gazebo, and three sensor-equipped
   vehicles. `BUILD_JOBS=2` is intentionally conservative.
 - For NVIDIA acceleration: a working host NVIDIA driver and NVIDIA Container
-  Toolkit.
+  Toolkit. Intel/AMD acceleration uses the host `/dev/dri/renderD128` device;
+  software rendering is used automatically when no supported GPU is available.
 - For visible Gazebo and RViz windows: a local X11/XWayland session.
 
 Check the basic tools before cloning:
@@ -111,32 +112,34 @@ Check the basic tools before cloning:
 ```bash
 docker --version
 docker compose version
-nvidia-smi  # NVIDIA profile only
+nvidia-smi  # optional; only needed to verify NVIDIA acceleration
 ```
 
 Clone the GitHub branch that contains the complete swarm and Docker workflow:
 
 ```bash
-git clone --branch vtol-apf-swarm --single-branch \
+git clone --branch dynamic-apf-sector --single-branch \
   https://github.com/dgkagkan/drone-apf-navigation.git
 cd drone-apf-navigation
 cp .env.example .env
 ```
 
-### Headless simulation
+### Docker simulation
 
-The portable default uses Mesa software rendering and does not open Gazebo or
-RViz windows:
-
-```bash
-docker compose up --build
-```
-
-On an NVIDIA machine, use the GPU profile:
+The portable Docker command detects the available renderer and opens both Gazebo
+and RViz. It selects NVIDIA when available, Intel/AMD through `/dev/dri` when
+available, and software rendering otherwise:
 
 ```bash
-docker compose -f compose.yaml -f compose.nvidia.yaml up --build
+./scripts/run_docker.sh 3
 ```
+
+The number is the number of spawned drones; for example, use
+`./scripts/run_docker.sh 5` for five. On the first GUI run after login, the
+script grants the local X11 display permission. A working NVIDIA Container
+Toolkit is still required when NVIDIA is selected; Intel/AMD needs a usable
+`/dev/dri/renderD128`. To force a backend, set `GPU_BACKEND=nvidia`,
+`GPU_BACKEND=intel`, or `GPU_BACKEND=software`.
 
 Wait until the dashboard service is healthy, then open:
 
@@ -160,43 +163,23 @@ docker compose down
 `docker compose down` does not delete the source tree or the host snapshot and
 recording folders.
 
-### Open Gazebo and RViz with NVIDIA
+### Run a headless Docker simulation
 
-Stop an existing headless stack before changing profiles:
-
-```bash
-docker compose down
-xhost +si:localuser:$(id -un)
-docker compose \
-  -f compose.yaml \
-  -f compose.gui.yaml \
-  -f compose.nvidia.yaml \
-  up --build
-```
-
-After stopping the GUI stack, revoke the temporary X11 permission:
+If Gazebo/RViz windows are not needed, use the same simple Compose command with
+the GUI flags disabled:
 
 ```bash
-xhost -si:localuser:$(id -un)
+DRONE_HEADLESS=true DRONE_USE_RVIZ=false ./scripts/run_docker.sh 3
 ```
 
-For Intel or AMD graphics, replace `compose.nvidia.yaml` with
-`compose.gpu.yaml`. Set `RENDER_GID` in `.env` to the numeric host render-group
-ID when it is not `109`:
+### Compose files
 
-```bash
-getent group render
-```
-
-### Docker profiles at a glance
-
-| Command/overlay | Gazebo/RViz windows | Rendering | Source edits live-mounted |
-| --- | --- | --- | --- |
-| `compose.yaml` | No | Mesa software/EGL headless | No |
-| `+ compose.nvidia.yaml` | No | NVIDIA/EGL headless | No |
-| `+ compose.gpu.yaml` | No | Intel/AMD `/dev/dri` | No |
-| `+ compose.gui.yaml` | Yes | Combine with the correct GPU overlay | No |
-| `+ compose.dev.yaml` | Depends on GUI overlay | Depends on GPU overlay | Yes |
+`compose.yaml` is the portable base workflow: it forwards the X11 display and
+uses software rendering by default, so it also works on a PC without a GPU.
+`scripts/run_docker.sh` selects `compose.nvidia.yaml` or `compose.gpu.yaml` when
+hardware acceleration is available. `compose.dev.yaml` is the overlay normally
+needed for live source development. `compose.gui.yaml` remains available for
+older explicit GUI commands.
 
 ### Environment settings
 
@@ -208,9 +191,14 @@ Edit `.env` before starting Compose:
 | `DASHBOARD_BIND_ADDRESS` | `127.0.0.1` | Host interface that exposes the dashboard. |
 | `DASHBOARD_PORT` | `8765` | Host dashboard port. |
 | `DASHBOARD_RATE_HZ` | `60.0` | Dashboard ROS request/state and maximum camera-processing rate. Actual camera FPS remains source-limited. |
+| `GPU_BACKEND` | `auto` | Renderer selected by the launcher: `nvidia`, `intel`, or `software`. |
+| `DRONE_COUNT` | `3` | Number of PX4/Gazebo drones spawned by the Docker `run` entrypoint. |
+| `DRONE_BASE_AGENT_PORT` | `8888` | First UDP port allocated to the per-drone XRCE agents. |
+| `DRONE_SPAWN_SPACING_M` | `8.0` | Spacing of the automatically generated extra-drone positions. |
 | `ROS_DOMAIN_ID` | `0` | ROS domain used by the complete stack. |
 | `PHOTO_DIR` | `./docker-data/photos` | Host directory mounted at `/data/photos`. |
 | `RECORD_DIR` | `./docker-data/recordings` | Host directory mounted at `/data/recordings`. |
+| `SETTINGS_DIR` | `./docker-data/settings` | Host directory mounted at `/data/settings` for saved dashboard profiles. |
 | `BUILD_JOBS` | `2` | Parallel image-build jobs; lower this if RAM is limited. |
 | `RENDER_GID` | `109` | Host render-group ID for the Intel/AMD profile. |
 
@@ -236,6 +224,37 @@ The normal mission sequence is:
 
 Per-drone speed overrides and LiDAR ranges are also routed by ID. `AUTO` removes
 a speed override and returns to each route target's stored speed.
+
+### Runtime settings
+
+Press `SETTINGS` in the top-right of the dashboard to open the live-parameter
+drawer. Select `ALL CONNECTED DRONES` or one drone, edit one or more values,
+and press the single `APPLY CHANGES` button. Until then, edits are only a
+dashboard draft. Closing the drawer with unapplied edits opens a confirmation
+dialog where you can apply them, discard them, or keep editing. The drawer has
+one top-level `LIVE PARAMETERS` folder. Inside it are the `PROFILES` folder and
+the collapsible runtime categories for APF avoidance, navigation/goal following,
+LiDAR filtering, camera display, and PX4 setpoint limits. The separate `FILES`
+folder contains snapshot and recording storage. The ⓘ control beside every
+parameter shows its English explanation on hover. Applied changes are sent
+through each drone's ROS 2 parameter service and affect the running nodes
+immediately.
+
+Use the `PROFILES` category to enter a name and press `SAVE CURRENT`. The profile
+stores the current parameter values in `runtime_profiles.json`; `LOAD PROFILE`
+only creates a draft, so `APPLY CHANGES` is still required before any drone is
+changed. Profiles can be overwritten by saving with the same name and removed
+with `DELETE`. In Docker, the file is kept in `SETTINGS_DIR` and survives image
+rebuilds, container recreation, and `docker compose down`.
+
+The `Camera display` settings are local to the dashboard and do not modify
+Gazebo or the ROS camera sensor. `Live camera update rate` controls dashboard
+decode/encode and browser polling (5, 15, 30, or 60 FPS); `Live camera
+resolution` resizes the image before JPEG encoding; and `JPEG image quality`
+controls compression. The simulated camera source is currently `640x360` at
+60 Hz, so `640x360` at 30 FPS is the recommended balance for this PC. Use
+`320x180` at 15 FPS when reducing CPU/network load is more important than
+detail.
 
 ### HOME, LAND, and FORCE DISARM
 
@@ -269,13 +288,20 @@ docker-data/recordings/drone_1/recording_YYYYMMDD_HHMMSS_microseconds.avi
 
 In Docker, select host storage by setting `PHOTO_DIR` and `RECORD_DIR` in
 `.env`. Compose mounts them into the container and preconfigures the dashboard,
-so capture controls are enabled at startup. A browser cannot directly grant a
-container arbitrary access to host folders.
+so capture controls are enabled at startup. The default host folders are
+`docker-data/photos` and `docker-data/recordings`.
 
-In a native run, the storage panel at the bottom of the dashboard can open the
-computer's native folder picker through `zenity` or `kdialog`. Photo and video
-folders are selected separately; their capture controls stay disabled until
-the corresponding folder is configured.
+For a clickable folder dialog that writes directly to any host folder, open the
+dashboard in Chrome or Edge and use `CHOOSE FOLDER`; those browsers provide the
+required local directory permission. Firefox does not provide that API, so in
+Docker use the `SERVER PATH` fields (`/data/photos` and `/data/recordings`) or
+configure `PHOTO_DIR` and `RECORD_DIR` before starting the container. A browser
+cannot grant a Docker container arbitrary host filesystem access.
+
+In a native run, the `FILES` folder can open the computer's native folder picker
+through `zenity` or `kdialog`. Photo and video folders are selected separately;
+their capture controls stay disabled until the corresponding folder is
+configured.
 
 A recording file is finalized atomically when `STOP` is pressed. Recording can
 start only while a fresh camera frame exists, and stopping reports an error if
@@ -297,7 +323,6 @@ and stores `build`, `install`, and `log` in named Docker volumes:
 docker compose \
   -f compose.yaml \
   -f compose.dev.yaml \
-  -f compose.nvidia.yaml \
   up --build
 ```
 
@@ -308,7 +333,6 @@ docker compose exec swarm-sim drone-dev-build
 docker compose \
   -f compose.yaml \
   -f compose.dev.yaml \
-  -f compose.nvidia.yaml \
   restart swarm-sim
 ```
 
@@ -343,7 +367,7 @@ source /opt/ros/jazzy/setup.bash
 ```bash
 mkdir -p ~/ros2_work_ws/src
 cd ~/ros2_work_ws/src
-git clone --branch vtol-apf-swarm --single-branch \
+git clone --branch dynamic-apf-sector --single-branch \
   https://github.com/dgkagkan/drone-apf-navigation.git
 git clone https://github.com/PX4/px4_msgs.git
 git -C px4_msgs checkout ff7ae284c4b9cb1c39d182e9f1a1343b3817011e
@@ -415,6 +439,12 @@ ros2 launch drone_bringup swarm_sim.launch.py world:=test
 Useful variants:
 
 ```bash
+# Choose how many simulated drones to spawn (default: 3).
+ros2 launch drone_bringup swarm_sim.launch.py drones:=5
+
+# Start the shared swarm graph without spawning PX4 vehicles.
+ros2 launch drone_bringup swarm_sim.launch.py drones:=0 use_rviz:=false
+
 # Headless smoke test
 ros2 launch drone_bringup swarm_sim.launch.py \
   world:=test headless:=true use_rviz:=false open_dashboard:=false
@@ -433,6 +463,22 @@ The default local three-drone layout is:
 | `drone_1` | 0 | 1 | 8888 | `(0, 0, 0)` |
 | `drone_2` | 1 | 2 | 8889 | `(0, 8, 0)` |
 | `drone_3` | 2 | 3 | 8890 | `(0, -8, 0)` |
+
+`drones:=N` creates `drone_1` through `drone_N`. Every drone receives its own
+PX4 instance (`-i`), MAV system ID, XRCE-DDS agent and UDP port, Gazebo model
+variant, controller/brain stack, TF broadcaster, camera/LiDAR bridges and
+mapping relay. The first three spawn positions remain the table above. Further
+drones are placed automatically on expanding six-point rings using
+`drone_spawn_spacing_m` (default 8 m). Use `base_agent_port` when the default
+XRCE port range is already occupied.
+
+The practical limit is 255 drones because PX4 MAV system IDs are one byte, and
+the requested agent ports must remain in the valid UDP range. `drones:=0` is
+valid and starts the shared clock/bridge, coordinator, dashboard and optional
+RViz without spawning a vehicle. The launch generates its per-run bridge and
+swarm parameter files under `work_root/generated`; the source configuration is
+not modified. RViz is generated for the selected number of models, LiDAR/APF
+displays and paths.
 
 ## ROS command examples
 
@@ -560,11 +606,13 @@ Clearing applies to every obstacle, not only other drones. It publishes:
 - `/swarm/octomap_full`
 - `/swarm/mapping/<drone_id>/occupied_voxels`
 
-RViz shows `/swarm/mapping_visualization`, with the same global geometry colored
-by height and per-drone local colors replacing matching voxels. Colors are assigned
-as drones join; overlapping locals use drone-ID order for a stable result.
-For height colors without local overlays, disable `Global OctoMap with local colors`
-and enable `Global OctoMap only (height)`. The combined display uses a fixed
+RViz starts with `Global OctoMap only (height)` enabled, showing the complete
+global occupied centers from `/swarm/octomap_point_cloud_centers` with height
+colors. The optional `/swarm/mapping_visualization` display combines the same
+global geometry with per-drone local colors. Colors are assigned as drones join;
+overlapping locals use drone-ID order for a stable result. To inspect the local
+overlays, enable `Global OctoMap with local colors` and disable the height-only
+display. The combined display uses a fixed
 blue–cyan–green–yellow–red height scale from -1 to 60 m, configurable through the
 mapper parameters `visualization_min_z_m` and `visualization_max_z_m`. Fixed bounds
 prevent recoloring existing voxels as the map grows. These are visualization options; the global
@@ -716,9 +764,12 @@ If another process already owns port 8765, change `DASHBOARD_PORT` in `.env`.
 
 ### Gazebo or RViz does not appear
 
-The base Docker profile is intentionally headless. Use `compose.gui.yaml` plus
-the correct GPU overlay and grant X11 access with the commands in the Docker
-GUI section. A native `swarm_sim.launch.py` run opens both by default.
+The portable launcher opens both windows and automatically chooses NVIDIA,
+Intel/AMD, or software rendering. For NVIDIA, install the NVIDIA Container
+Toolkit; for Intel/AMD, confirm that `/dev/dri/renderD128` exists. If no GPU is
+available, force the fallback with `GPU_BACKEND=software ./scripts/run_docker.sh 3`.
+The launcher grants X11 access automatically when `xhost` is available. A native
+`swarm_sim.launch.py` run opens both by default.
 
 ### Simulation runs much slower than real time
 

@@ -1,7 +1,7 @@
 services:
   swarm-sim:
     environment:
-      DISPLAY: ${DISPLAY}
+      DISPLAY: ${DISPLAY:-:0}
       DRONE_HEADLESS: "false"
       DRONE_USE_RVIZ: "true"
       LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-0}

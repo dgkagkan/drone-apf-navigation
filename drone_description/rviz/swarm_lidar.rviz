@@ -350,7 +350,7 @@ Visualization Manager:
       Class: rviz_default_plugins/PointCloud2
       Color Transformer: RGB8
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Name: Global OctoMap with local colors
       Position Transformer: XYZ
       Selectable: true
@@ -375,7 +375,7 @@ Visualization Manager:
       Axis: Z
       Color Transformer: AxisColor
       Decay Time: 0
-      Enabled: false
+      Enabled: true
       Name: Global OctoMap only (height)
       Position Transformer: XYZ
       Selectable: true
