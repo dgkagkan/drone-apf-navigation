@@ -54,11 +54,6 @@ if(NOT DRONE_ONBOARD_BUILD)
   ament_target_dependencies(gimbal_control_node
     rclcpp sensor_msgs std_msgs)
 
-  add_executable(gimbal_command_mux_node src/gimbal_command_mux_node.cpp)
-  target_compile_features(gimbal_command_mux_node PRIVATE cxx_std_17)
-  ament_target_dependencies(gimbal_command_mux_node
-    rclcpp std_msgs)
-
   add_executable(manual_control_node src/manual_control_node.cpp)
   target_compile_features(manual_control_node PRIVATE cxx_std_17)
   ament_target_dependencies(manual_control_node
@@ -67,9 +62,16 @@ if(NOT DRONE_ONBOARD_BUILD)
   list(APPEND drone_control_targets
     automated_mission_node
     gimbal_control_node
-    gimbal_command_mux_node
     manual_control_node)
 endif()
+
+# The mux is also required by the remote onboard brain. It forwards the
+# coordinator's namespaced commands to the Gazebo or vehicle gimbal topics.
+add_executable(gimbal_command_mux_node src/gimbal_command_mux_node.cpp)
+target_compile_features(gimbal_command_mux_node PRIVATE cxx_std_17)
+ament_target_dependencies(gimbal_command_mux_node
+  rclcpp std_msgs)
+list(APPEND drone_control_targets gimbal_command_mux_node)
 
 install(TARGETS
   ${drone_control_targets}

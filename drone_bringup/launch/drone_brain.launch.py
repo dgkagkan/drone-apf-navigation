@@ -125,12 +125,15 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "gimbal_control_enabled",
             default_value="false",
-            description="Enable joystick gimbal control (requires a full build).",
+            description="Enable joystick gimbal control (disabled on the onboard brain).",
         ),
         DeclareLaunchArgument(
             "gimbal_mux_enabled",
-            default_value="false",
-            description="Enable the PC-side gimbal source mux (requires a full build).",
+            default_value="true",
+            description=(
+                "Enable the swarm/teleop gimbal command mux. Keep enabled so "
+                "coordinator commands reach the simulated or real gimbal."
+            ),
         ),
         DeclareLaunchArgument("visualization_enabled", default_value="true"),
         DeclareLaunchArgument(

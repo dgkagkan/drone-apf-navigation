@@ -127,7 +127,11 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument("manual_control_enabled", default_value="true"),
         DeclareLaunchArgument("gimbal_control_enabled", default_value="true"),
-        DeclareLaunchArgument("gimbal_mux_enabled", default_value="true"),
+        DeclareLaunchArgument(
+            "gimbal_mux_enabled",
+            default_value="true",
+            description="Forward swarm gimbal commands to the vehicle gimbal topic.",
+        ),
         DeclareLaunchArgument("visualization_enabled", default_value="true"),
         DeclareLaunchArgument("navigation_client_terminal", default_value="true"),
         DeclareLaunchArgument("swarm_member_enabled", default_value="false"),

@@ -401,8 +401,9 @@ name collisions with stale package copies elsewhere in `src`. It uses separate
 `build/onboard` and `install/onboard` directories and forces sequential,
 single-job compilation to keep Raspberry Pi memory use bounded. The resulting
 install contains the existing `drone_brain.launch.py`; its runtime ROS graph and
-swarm protocol are unchanged. Manual control and gimbal control are disabled by
-default for this headless brain but can still be enabled in a normal full build.
+swarm protocol are unchanged. Joystick/manual gimbal control is disabled by
+default for this headless brain, while the lightweight gimbal command mux stays
+enabled so coordinator gimbal commands can reach the vehicle.
 The small pure-Python dashboard package is included only to keep
 `drone_bringup` dependency metadata complete; `drone_brain.launch.py` never
 starts it and the Pi does not subscribe to camera images.
