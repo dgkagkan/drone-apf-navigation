@@ -124,6 +124,45 @@ cd drone-apf-navigation
 cp .env.example .env
 ```
 
+### First run — exact sequence
+
+Follow these steps in order on a new computer:
+
+1. Download the repository and create `.env`, as shown above.
+2. Review `.env`. The important first-run values are `DRONE_COUNT` for the
+   number of vehicles, `GPU_BACKEND=auto` for automatic renderer selection, and
+   `BUILD_JOBS=2` for a conservative build on a typical computer.
+3. Build the Docker image. This downloads and compiles the pinned dependencies;
+   it creates the image but does not start Gazebo, RViz, or the dashboard:
+
+   ```bash
+   docker compose build
+   ```
+
+4. Start the simulation. The number after the script is the number of drones:
+
+   ```bash
+   ./scripts/run_docker.sh 3
+   ```
+
+   Use `./scripts/run_docker.sh 5` for five drones. The launcher selects
+   NVIDIA, Intel/AMD, or software rendering automatically. It may print
+   `CACHED` build steps; that is normal and does not download the dependencies
+   again when the image is already up to date.
+5. Wait for Gazebo, RViz, and `Coordinator online`, then open
+   <http://127.0.0.1:8765>.
+6. Choose where the drones should go from the dashboard map: add one or more
+   targets, set each target's altitude/speed/vehicle type, press `CALCULATE`,
+   review the assignments, and press `START MISSION`. The number passed to the
+   launcher controls how many drones exist; the map targets control where they
+   fly.
+
+To stop the simulation, press `Ctrl+C` in the Docker terminal and run:
+
+```bash
+docker compose down
+```
+
 ### Docker simulation
 
 The portable Docker command detects the available renderer and opens both Gazebo

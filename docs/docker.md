@@ -14,8 +14,14 @@ only when you need to change paths, IDs, or build parallelism:
 
 ```bash
 cp .env.example .env
+docker compose build
 ./scripts/run_docker.sh 3
 ```
+
+`docker compose build` only creates the image; it does not start Gazebo, RViz, or
+the dashboard. The launcher then starts the complete simulation and selects
+NVIDIA, Intel/AMD, or software rendering. Its numeric argument is the number of
+drones. For example, `./scripts/run_docker.sh 5` starts five vehicles.
 
 Open <http://127.0.0.1:8765>. Snapshots and recordings are enabled at startup
 and are written to `docker-data/photos` and `docker-data/recordings`. Saved
@@ -41,14 +47,15 @@ starting the container. In a native run, the server-side picker requires
 The first image build compiles PX4, the XRCE agent, `px4_msgs`, and the project,
 so it takes substantially longer than later cached builds.
 
-The number of simulated vehicles is configurable through `.env` without
-changing the image:
+The number of simulated vehicles is configurable without changing the image:
 
 ```bash
 ./scripts/run_docker.sh 5
 ```
 
-This starts five PX4 processes, five XRCE agents and five namespaced brains.
+This starts five PX4 processes, five XRCE agents and five namespaced brains. To
+choose destinations, add targets on the dashboard map, configure their altitude,
+speed, and vehicle type, then press `CALCULATE` followed by `START MISSION`.
 `DRONE_BASE_AGENT_PORT` changes the first agent port and
 `DRONE_SPAWN_SPACING_M` changes the generated layout spacing.
 
