@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.8)
 project(drone_swarm)
 
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+endif()
+
 option(
   DRONE_ONBOARD_BUILD
   "Build only swarm_member_node for an onboard drone computer"
@@ -38,7 +42,8 @@ if(NOT DRONE_ONBOARD_BUILD)
   target_compile_features(global_map_fusion PUBLIC cxx_std_17)
   target_include_directories(global_map_fusion PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>)
+    $<INSTALL_INTERFACE:include>
+    ${OCTOMAP_INCLUDE_DIRS})
 
   add_library(assignment_solver src/assignment_solver.cpp)
   target_compile_features(assignment_solver PUBLIC cxx_std_17)
@@ -107,6 +112,7 @@ if(NOT DRONE_ONBOARD_BUILD)
 
   if(BUILD_TESTING)
     find_package(ament_cmake_gtest REQUIRED)
+    find_package(ament_cmake_pytest REQUIRED)
     ament_add_gtest(test_assignment_solver test/test_assignment_solver.cpp)
     target_compile_features(test_assignment_solver PRIVATE cxx_std_17)
     target_link_libraries(test_assignment_solver assignment_solver)
@@ -119,6 +125,16 @@ if(NOT DRONE_ONBOARD_BUILD)
     ament_add_gtest(test_global_map_fusion test/test_global_map_fusion.cpp)
     target_compile_features(test_global_map_fusion PRIVATE cxx_std_17)
     target_link_libraries(test_global_map_fusion global_map_fusion)
+    ament_add_gtest(test_incremental_occupancy test/test_incremental_occupancy.cpp)
+    target_compile_features(test_incremental_occupancy PRIVATE cxx_std_17)
+    target_include_directories(test_incremental_occupancy PRIVATE ${OCTOMAP_INCLUDE_DIRS})
+    target_link_libraries(test_incremental_occupancy global_map_fusion ${OCTOMAP_LIBRARIES})
+    ament_add_pytest_test(test_map_server_integration test/test_map_server_integration.py
+      TIMEOUT 90
+      ENV
+        "MAPPER_EXECUTABLE=$<TARGET_FILE:swarm_global_map_server>"
+        "ROS_DOMAIN_ID=191"
+        "ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST")
   endif()
 endif()
 

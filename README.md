@@ -38,7 +38,8 @@ same runtime without installing those components separately.
   explicit emergency `FORCE DISARM` path.
 - 3D LiDAR processing and APF avoidance with a speed-dependent active obstacle
   sector and an omnidirectional emergency radius.
-- Persistent multi-drone OctoMap fusion with independent evidence per drone.
+- One global plus N local OctoMaps with cross-drone free-ray clearing,
+  temporal obstacle expiry, and persistent static-geometry confirmation.
 - Optuna single-goal and three-goal optimization, isolated parallel workers,
   repeatability benchmarks, SQLite studies, reports, and exact trial replay.
 - Docker profiles for headless software rendering, NVIDIA, Intel/AMD direct
@@ -547,14 +548,42 @@ Defaults are in
 ## Global mapping
 
 Every connected LiDAR drone publishes a typed low-rate map cloud. The PC-side
-`swarm_global_map_server` tracks occupied and free-space evidence independently
-for each drone, allowing stale or disconnected contributions to be removed
-without rebuilding the complete map. It publishes:
+`swarm_global_map_server` keeps one complete probabilistic local OctoMap per
+drone and fuses every drone's hit/miss rays into one global map. Occupied voxels
+persist until repeated verified free rays clear them. Missing observations are
+not treated as free space, so sparsely sampled surfaces such as the floor remain
+mapped. A single noisy miss does not toggle local occupancy and its overlay color.
+Clearing applies to every obstacle, not only other drones. It publishes:
 
 - `/swarm/octomap_point_cloud_centers`
 - `/swarm/octomap_binary`
 - `/swarm/octomap_full`
 - `/swarm/mapping/<drone_id>/occupied_voxels`
+
+RViz shows `/swarm/mapping_visualization`, with the same global geometry colored
+by height and per-drone local colors replacing matching voxels. Colors are assigned
+as drones join; overlapping locals use drone-ID order for a stable result.
+For height colors without local overlays, disable `Global OctoMap with local colors`
+and enable `Global OctoMap only (height)`. The combined display uses a fixed
+blue–cyan–green–yellow–red height scale from -1 to 60 m, configurable through the
+mapper parameters `visualization_min_z_m` and `visualization_max_z_m`. Fixed bounds
+prevent recoloring existing voxels as the map grows. These are visualization options; the global
+OctoMap messages and clearing behavior do not depend on the selected display.
+
+`dynamic_obstacle_timeout_sec` defaults to `0` (evidence-based clearing).
+Setting a positive value enables the optional temporal mode: unconfirmed hits
+expire when unseen, while `static_confirmation_sec` (8) and
+`static_confirmation_hits` (12) control promotion to persistent geometry.
+Short timeouts can erase sparse floor returns and cause local-color flicker.
+Both modes use probabilities `hit=0.70`, `miss=0.35`, and `max=0.90`;
+at most four newer miss observations clear a saturated persistent voxel when
+there are no intervening hits. Unobserved obstacles are retained in the default
+mode until a sensor actually sees through their old location.
+
+The mapping input is the main 360-degree LiDAR with vertical coverage of only
+±15 degrees, not the downward landing sensor. No artificial ground plane is
+inserted: the floor is mapped only where actual rays hit it, not directly below
+the drone where this sensor has a blind region.
 
 Mapping is enabled by default. In Docker, set `DRONE_USE_MAPPING=false` in
 `.env` only when a lighter run is more important than the global map.

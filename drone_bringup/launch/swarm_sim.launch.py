@@ -131,6 +131,15 @@ def _launch_setup(context):
         LaunchConfiguration("octomap_publish_rate_hz").perform(context)
     )
     mapping_queue_size = int(LaunchConfiguration("mapping_queue_size").perform(context))
+    dynamic_obstacle_timeout_sec = float(
+        LaunchConfiguration("dynamic_obstacle_timeout_sec").perform(context)
+    )
+    static_confirmation_sec = float(
+        LaunchConfiguration("static_confirmation_sec").perform(context)
+    )
+    static_confirmation_hits = int(
+        LaunchConfiguration("static_confirmation_hits").perform(context)
+    )
     mapping_resolution_m = float(
         LaunchConfiguration("mapping_resolution_m").perform(context)
     )
@@ -149,6 +158,12 @@ def _launch_setup(context):
         raise RuntimeError("octomap_publish_rate_hz must be greater than zero")
     if mapping_queue_size < 1:
         raise RuntimeError("mapping_queue_size must be greater than zero")
+    if dynamic_obstacle_timeout_sec < 0.0:
+        raise RuntimeError("dynamic_obstacle_timeout_sec cannot be negative")
+    if static_confirmation_sec < 0.0:
+        raise RuntimeError("static_confirmation_sec cannot be negative")
+    if static_confirmation_hits < 1:
+        raise RuntimeError("static_confirmation_hits must be greater than zero")
     if mapping_resolution_m <= 0.0:
         raise RuntimeError("mapping_resolution_m must be greater than zero")
     if mapping_max_range_m <= 0.0:
@@ -334,11 +349,14 @@ def _launch_setup(context):
                 "map_frame": "map",
                 "mapping_topic_prefix": "/swarm",
                 "resolution": mapping_resolution_m,
-                "hit_probability": 0.75,
-                "miss_probability": 0.45,
+                "hit_probability": 0.70,
+                "miss_probability": 0.35,
                 "min_probability": 0.12,
-                "max_probability": 0.97,
+                "max_probability": 0.90,
                 "occupied_probability": 0.5,
+                "dynamic_obstacle_timeout_sec": dynamic_obstacle_timeout_sec,
+                "static_confirmation_sec": static_confirmation_sec,
+                "static_confirmation_hits": static_confirmation_hits,
                 "mapping_queue_size": mapping_queue_size,
                 "publish_rate_hz": mapping_rate_hz,
                 "octomap_publish_rate_hz": octomap_publish_rate_hz,
@@ -471,6 +489,21 @@ def generate_launch_description():
             "mapping_queue_size",
             default_value="5",
             description="Small per-drone mapping DDS queue; normally keep this 5-10.",
+        ),
+        DeclareLaunchArgument(
+            "dynamic_obstacle_timeout_sec",
+            default_value="0.0",
+            description="Unseen voxel expiry; 0 retains evidence until free rays clear it.",
+        ),
+        DeclareLaunchArgument(
+            "static_confirmation_sec",
+            default_value="8.0",
+            description="Observation span before stable geometry becomes persistent.",
+        ),
+        DeclareLaunchArgument(
+            "static_confirmation_hits",
+            default_value="12",
+            description="Minimum hits before geometry becomes persistent.",
         ),
         DeclareLaunchArgument("mapping_resolution_m", default_value="0.5"),
         DeclareLaunchArgument("mapping_max_range_m", default_value="300.0"),
