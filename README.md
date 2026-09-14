@@ -112,7 +112,66 @@ Check the basic tools before cloning:
 ```bash
 docker --version
 docker compose version
-nvidia-smi  # optional; only needed to verify NVIDIA acceleration
+```
+
+Both commands must print a version. `nvidia-smi` is optional and is only
+needed when NVIDIA acceleration is expected; its absence is normal on an
+Intel/AMD-only or no-GPU computer.
+
+### If Docker is missing — Ubuntu 24.04
+
+Run the following once to install Docker Engine, Buildx, and the Docker
+Compose plugin from Docker's official repository:
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+sudo tee /etc/apt/sources.list.d/docker.sources > /dev/null <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io \
+  docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+```
+
+If `docker --version` works but `docker compose version` does not, install only
+the missing plugin after Docker's repository has been configured:
+
+```bash
+sudo apt update
+sudo apt install -y docker-compose-plugin
+```
+
+If Docker reports permission denied for `/var/run/docker.sock`, allow the
+current user to run Docker without `sudo`, then open a new terminal or run
+`newgrp docker`:
+
+```bash
+sudo usermod -aG docker "$USER"
+newgrp docker
+docker run --rm hello-world
+```
+
+The `docker` group grants root-level access to the Docker daemon. Use it only
+on a trusted development machine. These installation and post-installation
+steps follow Docker's [Ubuntu installation guide](https://docs.docker.com/engine/install/ubuntu/)
+and [Linux post-installation guide](https://docs.docker.com/engine/install/linux-postinstall/).
+
+For a visible Gazebo/RViz run, the Ubuntu session also needs X11/XWayland. If
+the launcher says `xhost: command not found`, install the X11 utility package:
+
+```bash
+sudo apt install -y x11-xserver-utils
 ```
 
 Clone the GitHub branch that contains the complete swarm and Docker workflow:

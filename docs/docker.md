@@ -7,10 +7,62 @@ complete configurable drone simulation, and the dashboard on the host loopback
 interface. The portable launcher automatically selects NVIDIA, Intel/AMD
 `/dev/dri`, or software rendering.
 
-## First run
+## First run on Ubuntu 24.04
 
-Docker Engine with the Compose plugin is required. Copy the example settings
-only when you need to change paths, IDs, or build parallelism:
+Docker Engine and the Compose plugin are required. First check whether they are
+already available:
+
+```bash
+docker --version
+docker compose version
+```
+
+If either command is missing, install Docker Engine, Buildx, and Compose from
+Docker's official Ubuntu repository:
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+sudo tee /etc/apt/sources.list.d/docker.sources > /dev/null <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io \
+  docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"
+newgrp docker
+docker run --rm hello-world
+```
+
+If Docker is already installed but Compose is missing, run:
+
+```bash
+sudo apt update
+sudo apt install -y docker-compose-plugin
+```
+
+If a visible GUI run reports `xhost: command not found`, install:
+
+```bash
+sudo apt install -y x11-xserver-utils
+```
+
+The commands above follow Docker's [Ubuntu installation guide](https://docs.docker.com/engine/install/ubuntu/),
+[Compose plugin guide](https://docs.docker.com/compose/install/linux/), and
+[Linux post-installation guide](https://docs.docker.com/engine/install/linux-postinstall/).
+
+After the tools are available, copy the example settings and continue in this
+order:
 
 ```bash
 cp .env.example .env
